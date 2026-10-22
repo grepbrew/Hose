@@ -1,4 +1,4 @@
-# TC-032: the on-Pod watchdog's stop decision. Run by `npm test` with `python3 -I tests/watchdog_test.py`.
+# TC-032, TC-077, TC-078: the on-Pod watchdog's stop decision. Run by `npm test` with `python3 -I tests/watchdog_test.py`.
 import pathlib
 import sys
 import unittest
@@ -30,6 +30,23 @@ class ShouldStop(unittest.TestCase):
         stop = should_stop(now=30 * MIN, booted_at=0, last_activity=19 * MIN, ready=True, idle_s=IDLE, boot_s=BOOT)
 
         self.assertTrue(stop)
+
+    # TC-077: the per-run budget, as minutes of GPU time, stops even a busy pod
+    def test_budget_59_min_keeps_running(self):
+        stop = should_stop(now=59 * MIN, booted_at=0, last_activity=59 * MIN, ready=True, idle_s=IDLE, boot_s=BOOT, max_s=60 * MIN)
+
+        self.assertFalse(stop)
+
+    def test_budget_61_min_stops_busy_pod(self):
+        stop = should_stop(now=61 * MIN, booted_at=0, last_activity=61 * MIN, ready=True, idle_s=IDLE, boot_s=BOOT, max_s=60 * MIN)
+
+        self.assertTrue(stop)
+
+    # TC-078: idle_s 0 is "Never"
+    def test_never_idle_5_h_keeps_running(self):
+        stop = should_stop(now=5 * 60 * MIN, booted_at=0, last_activity=0, ready=True, idle_s=0, boot_s=BOOT, max_s=0)
+
+        self.assertFalse(stop)
 
 
 if __name__ == "__main__":

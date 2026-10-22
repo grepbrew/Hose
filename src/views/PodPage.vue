@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, nextTick } from "vue";
-import { label, ago, usd, type Cloud, type Config, type GpuCard, type Pod } from "../cost";
+import { label, ago, usd, offText, allDay, volumePerMo, spendTotals, type Cloud, type Config, type GpuCard, type Pod } from "../cost";
 import type { Fleet } from "../fleet";
 import Chat from "./Chat.vue";
 import Details from "./Details.vue";
@@ -58,7 +58,31 @@ async function run(fn: () => Promise<unknown>, what: string) {
     busy.value = false;
   }
 }
-const turnOn = () => run(() => f.turnOn(props.config!), "turn it on");
+// set when the volume's data center had no free GPU and Turn on went elsewhere
+const moved = ref("");
+const turnOn = () =>
+  run(async () => {
+    const c = props.config!;
+    moved.value = (await f.turnOn(c)) ? `No free ${c.gpuName} in ${c.volumeDc} right now, so this pod downloads the model again.` : "";
+  }, "turn it on");
+const removeStorage = () => run(() => f.removeStorage(props.config!), "remove its storage");
+// a pod RunPod never started: delete it and ask for a new one
+const retry = () =>
+  run(async () => {
+    await f.turnOff(props.config!);
+    await f.turnOn(props.config!);
+  }, "try another machine");
+
+// how it turns itself off, for the header: idle minutes left, budget left, or on 24/7
+const allDayCost = computed(() => (props.config && !props.config.idleMin && !props.config.budget && props.config.price ? allDay(props.config.price) : null));
+const storageMo = computed(() => (props.config?.volumeId ? usd(volumePerMo(props.config.volumeGb ?? 0)) : ""));
+const offNote = computed(() => {
+  const c = props.config!;
+  const left = f.offInMin(c);
+  if (left !== null) return `· turns off in ${left} min`;
+  if (c.budget) return `· ${usd(Math.max(0, c.budget - spendTotals(c).run))} left this run`;
+  return "· on 24/7";
+});
 const turnOff = () => run(() => (props.stray ? f.turnOffPod(props.stray.id) : f.turnOff(props.config!)), "turn it off");
 const forget = () => run(() => f.forget(props.config!), "delete it");
 
@@ -81,7 +105,7 @@ function useGpu() {
   picking.value = false;
 }
 
-const NOTE: Record<string, string> = { Starting: "· loading the model, 2–5 min", Answering: "· answering", Off: "· not billing" };
+const NOTE: Record<string, string> = { Starting: "· loading the model", Answering: "· answering", Off: "· not billing" };
 </script>
 
 <template>
@@ -93,7 +117,7 @@ const NOTE: Record<string, string> = { Starting: "· loading the model, 2–5 mi
         <span class="status">
           <span class="dot" :class="state === 'Off' ? 'off' : state === 'Starting' ? 'starting' : 'on'" />
           <span class="st">{{ state }}</span>
-          {{ state === "On" ? `· turns off in ${f.offInMin(config)} min` : NOTE[state] }}
+          {{ state === "On" ? offNote : NOTE[state] }}
         </span>
       </template>
       <template v-else-if="stray">
@@ -108,6 +132,7 @@ const NOTE: Record<string, string> = { Starting: "· loading the model, 2–5 mi
       </button>
     </header>
     <p v-if="error" class="pagerr error" role="alert">{{ error }}</p>
+    <p v-else-if="moved && state !== 'Off'" class="pagerr muted" role="status">{{ moved }}</p>
 
     <div class="body">
       <section v-if="config && picking" class="picker">
@@ -122,17 +147,30 @@ const NOTE: Record<string, string> = { Starting: "· loading the model, 2–5 mi
         </div>
       </section>
 
-      <Chat v-else-if="config && state !== 'Off'" :config="config" :fleet="fleet" :api-key="apiKey" :vllm-key="vllmKey" />
+      <Chat v-else-if="config && state !== 'Off'" :config="config" :fleet="fleet" :api-key="apiKey" :vllm-key="vllmKey" @retry="retry" />
 
       <section v-else-if="config" class="empty">
         <div class="icon-tile"><Icon name="power" :size="22" /></div>
         <h1>This pod is off</h1>
         <p class="muted">
-          Turn it on to chat. Downloading and loading the model takes 2–5 min. It turns itself off after {{ config.idleMin }} quiet minutes, even if you close Hose.
+          Turn it on to chat.
+          {{ config.volumeId ? "The model is kept in storage, so it starts faster." : "Downloading and loading the model takes 5–10 min." }}
+          {{ config.idleMin || config.budget ? `It turns itself off ${offText(config)}, even if you close Hose.` : "It stays on 24/7 until you turn it off." }}
         </p>
         <button class="btn primary cta" type="button" :disabled="busy" @click="turnOn">
-          {{ busy ? "Turning on…" : `Turn on · ${config.gpuName}${config.price ? ` · ${usd(config.price)}/hr` : ""}` }}
+          {{
+            busy
+              ? "Turning on…"
+              : allDayCost
+                ? `Turn on 24/7 · ${config.gpuName} · ≈ ${usd(allDayCost.month, 0)}/mo`
+                : `Turn on · ${config.gpuName}${config.price ? ` · ${usd(config.price)}/hr` : ""}`
+          }}
         </button>
+        <template v-if="storageMo">
+          <p class="muted small">Model kept in storage · ≈ {{ storageMo }}/mo, even while it's off.</p>
+          <button class="btn quiet" type="button" :disabled="busy" @click="removeStorage">Remove storage · save ≈ {{ storageMo }}/mo</button>
+          <p class="muted small">Turn on downloads the model again after that.</p>
+        </template>
         <p v-if="config.last?.startedAt" class="muted small">
           Last run {{ ago(config.last.startedAt, f.s.now) }}{{ config.last.dataCenter ? `, ${config.last.dataCenter}` : "" }}
         </p>

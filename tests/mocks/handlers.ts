@@ -11,6 +11,10 @@ export const state = {
   n: 0,
   booting: "", // a pod that never turns ready (seed starting)
   lastCreate: null as Record<string, unknown> | null, // last POST /v2/pods body
+  calls: [] as string[], // writes in order: "create", "create full", "delete pod1", "volume create US-TX-3", "volume resize vol1 50", "volume delete vol1"
+  volumes: [] as { id: string; name: string; size: number; dataCenter: string; type: string }[],
+  full: false, // the volume's data center has no free GPU: a pod with a network mount gets 400
+  silent: "", // a pod RunPod's host never started: its log stream has no lines (seed stuck)
 };
 
 // Fields a running GPU pod carries in GET /v2/pods (Pod schema in api.runpod.io/v2/openapi.json).
@@ -38,9 +42,18 @@ export function seed(name: string | null) {
   state.checks = {};
   state.booting = "";
   state.lastCreate = null;
-  if (name === "on" || name === "two") {
+  state.calls = [];
+  state.volumes = [];
+  state.full = false;
+  state.silent = "";
+  if (name === "stored" || name === "storedOn") state.volumes.push({ id: "vol1", name: "hose-qwen3-8b", size: 25, dataCenter: "US-TX-3", type: "STANDARD" });
+  if (name === "on" || name === "two" || name === "storedOn") {
     state.pods.push(pod("pod1", "hose-qwen3-8b", "NVIDIA RTX 4090", 0.89, 21));
     state.checks.pod1 = 1;
+  }
+  if (name === "stuck") {
+    state.pods.push(pod("pod1", "hose-qwen3-8b", "NVIDIA RTX 4090", 0.89, 5));
+    state.booting = state.silent = "pod1";
   }
   if (name === "starting") {
     state.pods.push(pod("pod1", "hose-qwen3-8b", "NVIDIA RTX 4090", 0.89, 1));
@@ -139,8 +152,8 @@ export const handlers = [
       ? unauthorized()
       : HttpResponse.json({
           dataCenters: [
-            { id: "US-TX-3", name: "US Texas 3", region: "NORTH_AMERICA", networkVolumeTypes: [], compliance: [], globalNetwork: true },
-            { id: "EU-RO-1", name: "EU Romania 1", region: "EUROPE", networkVolumeTypes: [], compliance: [], globalNetwork: false },
+            { id: "US-TX-3", name: "US Texas 3", region: "NORTH_AMERICA", networkVolumeTypes: ["STANDARD"], compliance: [], globalNetwork: true },
+            { id: "EU-RO-1", name: "EU Romania 1", region: "EUROPE", networkVolumeTypes: ["HIGH_PERFORMANCE"], compliance: [], globalNetwork: false },
           ],
         }),
   ),
@@ -154,14 +167,45 @@ export const handlers = [
   ),
   http.post(`${REST}/pods`, async ({ request }) => {
     if (denied(request)) return unauthorized();
-    state.lastCreate = (await request.json()) as Record<string, unknown>;
+    const body = (await request.json()) as Record<string, any>;
+    if (state.full && body.mounts?.network) {
+      state.calls.push("create full");
+      return HttpResponse.json(
+        { detail: "There are no longer any instances available with the requested specifications. Please refresh and try again.", status: 400, title: "Bad Request" },
+        { status: 400 },
+      );
+    }
+    state.lastCreate = body;
     const name = state.lastCreate.name as string;
     const created = pod(`pod${++state.n + 1}`, name, "NVIDIA RTX 4090", 0.89);
     state.pods.push(created);
+    state.calls.push("create");
     return HttpResponse.json(created, { status: 201 });
   }),
   http.delete(`${REST}/pods/:id`, ({ params }) => {
     state.pods = state.pods.filter((p) => p.id !== params.id);
+    state.calls.push(`delete ${params.id}`);
+    return new HttpResponse(null, { status: 204 });
+  }),
+  // network volumes (openapi /v2/network-volumes; live shape 2026-10-22: {id, name, size, dataCenter, type})
+  http.post(`${REST}/network-volumes`, async ({ request }) => {
+    if (denied(request)) return unauthorized();
+    const b = (await request.json()) as { name: string; size: number; dataCenter: string; type: string };
+    const v = { id: `vol${state.volumes.length + 2}`, name: b.name, size: b.size, dataCenter: b.dataCenter, type: b.type ?? "STANDARD" };
+    state.volumes.push(v);
+    state.calls.push(`volume create ${b.dataCenter}`);
+    return HttpResponse.json(v, { status: 201 });
+  }),
+  http.patch(`${REST}/network-volumes/:id`, async ({ request, params }) => {
+    const v = state.volumes.find((x) => x.id === params.id);
+    if (!v) return new HttpResponse("Not Found", { status: 404 });
+    v.size = ((await request.json()) as { size: number }).size;
+    state.calls.push(`volume resize ${v.id} ${v.size}`);
+    return HttpResponse.json(v);
+  }),
+  http.delete(`${REST}/network-volumes/:id`, ({ params }) => {
+    state.volumes = state.volumes.filter((v) => v.id !== params.id);
+    state.calls.push(`volume delete ${params.id}`);
     return new HttpResponse(null, { status: 204 });
   }),
   http.get("https://*.proxy.runpod.net/v1/models", ({ request }) => {
@@ -171,8 +215,8 @@ export const handlers = [
     return ready ? HttpResponse.json({ object: "list", data: [{ id: "Qwen/Qwen3-8B" }] }) : new HttpResponse("Not Found", { status: 404 });
   }),
   // a reconnect (since=) has nothing new, so the client's retry loop adds no duplicates
-  http.get(`${REST}/pods/:id/logs`, ({ request }) =>
-    denied(request) ? unauthorized() : sse(new URL(request.url).searchParams.has("since") ? [] : LOGS),
+  http.get(`${REST}/pods/:id/logs`, ({ request, params }) =>
+    denied(request) ? unauthorized() : sse(new URL(request.url).searchParams.has("since") || state.silent === params.id ? [] : LOGS),
   ),
   http.post("https://*.proxy.runpod.net/v1/chat/completions", () => sse(SSE)),
   http.get("https://huggingface.co/api/whoami-v2", () => HttpResponse.json({ name: "tester" })),

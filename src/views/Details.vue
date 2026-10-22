@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watchEffect } from "vue";
 import { getGpus, getDatacenterName, getDataCenters } from "../api";
-import { spendTotals, snapshotOf, diskGb, fitDisk, placeName, duration, ago, usd, VLLM_IMAGE, type Cloud, type Config, type Pod } from "../cost";
+import { spendTotals, snapshotOf, diskGb, fitDisk, placeName, duration, ago, usd, offText, allDay, volumePerMo, VLLM_IMAGE, type Cloud, type Config, type Pod } from "../cost";
 import type { Fleet } from "../fleet";
 import Icon from "./Icon.vue";
 
@@ -19,6 +19,14 @@ const on = computed(() => !!props.config?.podId);
 const spend = computed(() => props.config && spendTotals(props.config));
 const runs = computed(() => (props.config ? props.config.pastPodIds.length + (props.config.podId ? 1 : 0) : 0));
 
+// on 24/7 (Never, no budget): what that costs a day and a month
+const allDayCost = computed(() => (props.config && !props.config.idleMin && !props.config.budget && props.config.price ? allDay(props.config.price) : null));
+const storageMo = computed(() => (props.config?.volumeId ? usd(volumePerMo(props.config.volumeGb ?? 0)) : ""));
+const budgetLeft = computed(() => (props.config?.budget ? Math.max(0, props.config.budget - (spend.value?.run ?? 0)) : null));
+function setBudget(e: Event) {
+  props.config!.budget = Number((e.target as HTMLInputElement).value) || undefined;
+}
+
 // A stray has no config, so its machine details are read live.
 const strayDc = ref("");
 watchEffect(async () => {
@@ -27,11 +35,15 @@ watchEffect(async () => {
 });
 const machine = computed(() => (props.stray ? snapshotOf(props.stray, strayDc.value, f.s.now) : props.config?.last));
 
-// The location picked for new pods: Europe, EU Romania 1, or nothing for anywhere
+// The location picked for new pods (Europe, EU Romania 1, or nothing for anywhere), and where the model's volume is
 const where = ref("");
+const volumeWhere = ref("");
 watchEffect(async () => {
   const loc = props.config?.location;
-  where.value = loc ? placeName(loc, await getDataCenters(props.apiKey).catch(() => [])) : "";
+  const dc = props.config?.volumeDc;
+  const dcs = loc || dc ? await getDataCenters(props.apiKey).catch(() => []) : [];
+  where.value = loc ? placeName(loc, dcs) : "";
+  volumeWhere.value = dc ? placeName(dc, dcs) : "";
 });
 
 const editing = ref(false);
@@ -105,7 +117,10 @@ const confirming = ref(false);
       </div>
 
       <button v-if="on" class="btn wide" type="button" :disabled="busy" @click="emit('turnOff')">{{ busy ? "Turning off…" : "Turn off" }}</button>
-      <button v-else class="btn primary wide" type="button" :disabled="busy" @click="emit('turnOn')">{{ busy ? "Turning on…" : "Turn on" }}</button>
+      <button v-else class="btn primary wide" type="button" :disabled="busy" @click="emit('turnOn')">
+        {{ busy ? "Turning on…" : allDayCost ? `Turn on 24/7 · ≈ ${usd(allDayCost.month, 0)}/mo` : "Turn on" }}
+      </button>
+      <p v-if="on && storageMo" class="muted tiny keep">The model stays in storage: ≈ {{ storageMo }}/mo until you remove it.</p>
 
       <section class="sec">
         <div class="sechead">
@@ -131,8 +146,14 @@ const confirming = ref(false);
             <label class="l" for="idle-edit">Turns off after</label>
             <select id="idle-edit" v-model.number="config.idleMin" class="inputish">
               <option v-for="n in IDLE_CHOICES" :key="n" :value="n">{{ n }} quiet min</option>
+              <option :value="0">Never</option>
             </select>
           </div>
+          <div class="f">
+            <label class="l" for="budget-edit">Turn off after spending ($)</label>
+            <input id="budget-edit" type="number" class="inputish" min="0" step="1" placeholder="No limit" :value="config.budget ?? ''" @change="setBudget" />
+          </div>
+          <p v-if="allDayCost" class="warn small">Stays on 24/7 until you turn it off: ≈ {{ usd(allDayCost.day) }}/day · ≈ {{ usd(allDayCost.month, 0) }}/month.</p>
           <div class="f">
             <label class="l" for="disk-edit">Storage (GB)</label>
             <input id="disk-edit" type="number" class="inputish" :min="diskGb(config.params)" step="5" :value="config.disk ?? diskGb(config.params)" @change="setDisk" />
@@ -144,7 +165,10 @@ const confirming = ref(false);
             <Icon name="graphics-card" /><span>{{ config.gpuName }}{{ config.vram ? ` · ${config.vram} GB` : "" }}<small>{{ cloudName(config.cloud) }} cloud{{ where ? ` · ${where}` : "" }}</small></span>
           </div>
           <div class="li">
-            <Icon name="timer" /><span>Turns off after {{ config.idleMin }} quiet min<small v-if="f.state(config) === 'On'">{{ f.offInMin(config) }} min left</small></span>
+            <Icon name="timer" /><span>Turns off {{ offText(config) }}<small v-if="f.state(config) === 'On' && f.offInMin(config) !== null">{{ f.offInMin(config) }} min left</small><small v-if="on && budgetLeft !== null">{{ usd(budgetLeft) }} left this run</small><small v-if="allDayCost">≈ {{ usd(allDayCost.day) }}/day · ≈ {{ usd(allDayCost.month, 0) }}/month</small></span>
+          </div>
+          <div v-if="config.volumeId" class="li">
+            <Icon name="package" /><span>{{ config.volumeGb }} GB storage · ≈ {{ storageMo }}/mo<small>Keeps the model{{ volumeWhere ? ` in ${volumeWhere}` : "" }} between runs</small></span>
           </div>
           <div class="li">
             <Icon name="package" /><span class="wrap">{{ config.id }}<small>{{ VLLM }} · {{ config.disk ?? diskGb(config.params) }} GB disk</small></span>
@@ -172,7 +196,7 @@ const confirming = ref(false);
         <p v-else class="muted small">{{ on ? "Waiting for RunPod…" : "Not turned on yet." }}</p>
       </section>
 
-      <p class="muted tiny">Spend is estimated from run time × the hourly price.</p>
+      <p class="muted tiny">Spend is GPU time, estimated from run time × the hourly price. Storage isn't counted.</p>
 
       <div class="del">
         <div v-if="confirming" class="cedit confirm">
@@ -224,6 +248,9 @@ const confirming = ref(false);
 }
 .wide {
   width: 100%;
+}
+.keep {
+  margin: -10px 0 0;
 }
 .sec {
   display: flex;

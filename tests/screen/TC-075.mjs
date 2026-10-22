@@ -2,7 +2,7 @@
 // Run the `screen run:` line from tests/TEST_CASES.md: it starts the mock dev server, waits for it, then pipes this file.
 //
 // steps:
-//   1. open /?seed=none 2. click New pod 3. click Large 4. click Qwen3.8-27B 5. expect Storage = 105 6. fill Storage = 50 then blur 7. expect 105 8. fill Storage = 202 9. click Save only
+//   1. open /?seed=none 2. click New pod 3. click Large 4. click Qwen3.8-27B 5. expect Storage = 70 6. fill Storage = 50 then blur 7. expect 70 8. fill Storage = 202 9. click Save only
 //
 // One TaskSpace per run; pass/fail comes from the snapshot assertion. The PNG is evidence only.
 const BASE = "http://localhost:5199"; // must equal `base:` in TEST_CASES.md. process.env is NOT passed into ego's node runtime.
@@ -33,7 +33,7 @@ await page.click("loc=role:button[name='Save only']", { label: "save only" });
 await page.waitForSelector("text=205 GB disk", { state: "visible", timeout: 10000 }).catch(() => {});
 const snap = await page.snapshot({ scope: "full_page" });
 console.log(`${TC}: recommended ${recommended}, step ${step}, after 50 → ${clamped}`);
-const ok = recommended === "105" && step === "5" && clamped === "105" && snap.includes("205 GB disk");
+const ok = recommended === "70" && step === "5" && clamped === "70" && snap.includes("205 GB disk");
 console.log(`${TC}: ${ok ? "PASS" : "FAIL"}`);
 
 try {

@@ -53,6 +53,19 @@ export const createPod = (key: string, input: object) => runpod<Pod>(`${REST}/po
 
 export const deletePod = (key: string, id: string) => runpod<void>(`${REST}/pods/${id}`, key, { method: "DELETE" });
 
+// --- network volumes: keep a model between pods (one data center, billed until deleted) -------------
+
+export type Volume = { id: string; name: string; size: number; dataCenter: string };
+
+export const createVolume = (key: string, name: string, size: number, dataCenter: string) =>
+  runpod<Volume>(`${REST}/network-volumes`, key, { method: "POST", body: JSON.stringify({ name, size, dataCenter, type: "STANDARD" }) });
+
+export const deleteVolume = (key: string, id: string) => runpod<void>(`${REST}/network-volumes/${id}`, key, { method: "DELETE" });
+
+/** RunPod only lets a volume grow. */
+export const resizeVolume = (key: string, id: string, size: number) =>
+  runpod<Volume>(`${REST}/network-volumes/${id}`, key, { method: "PATCH", body: JSON.stringify({ size }) });
+
 export type LogLine = { source: "system" | "container"; line: string; ts: string };
 
 /**

@@ -14,8 +14,8 @@ export type Gpu = {
   dataCenters?: { id: string; availability: string }[]; // Secure cloud only: Community reports no locations
 };
 
-/** One item of GET /v2/catalog/datacenters. */
-export type DataCenter = { id: string; name: string; region: string };
+/** One item of GET /v2/catalog/datacenters. networkVolumeTypes: [] = no network volumes there. */
+export type DataCenter = { id: string; name: string; region: string; networkVolumeTypes?: string[] };
 
 /** Data center ids a location covers: "" = anywhere, a region (EUROPE) = its data centers, else one data center. */
 export const dcIds = (location: string, dcs: DataCenter[]) =>
@@ -117,17 +117,43 @@ export function parseHfModel(info: HfInfo, hasToken: boolean): { ok: true; model
 // CUDA 13.0 build. The -cu129 tag crash-loops: its torchcodec wants libnvrtc.so.13 (spike 2026-10-22).
 export const VLLM_IMAGE = "vllm/vllm-openai:v0.32.0";
 
-/** Recommended container disk: the model files, half again for the download, 20 GB for vLLM; rounded up to 5 GB. */
-export const diskGb = (params: Record<string, number>) => Math.ceil((weightsGb(params) * 1.5 + 20) / 5) * 5;
+/** Recommended model storage (the network volume, or the container disk without one): the model files plus 10% and
+ * 5 GB for vLLM's compile cache; rounded up to 5 GB, at least RunPod's 10 GB volume floor. */
+export const diskGb = (params: Record<string, number>) => Math.max(10, Math.ceil((weightsGb(params) * 1.1 + 5) / 5) * 5);
+
+/** A network volume costs $0.07/GB/month under 1 TB, on or off (docs.runpod.io/pods/pricing, 2026-10-22). */
+export const volumePerMo = (gb: number) => gb * 0.07;
+
+/**
+ * Where to keep a model's network volume: the data center with the most stock of this GPU, inside the location's
+ * ids (if any), that offers STANDARD volumes. "" = nowhere (Community GPUs list no data centers).
+ * ponytail: STANDARD only, the HIGH_PERFORMANCE tier's price isn't published; add it if stock is too thin.
+ */
+export function volumeDc(gpu: Gpu, locationIds: string[], dcs: DataCenter[]) {
+  const ok = (id: string) =>
+    (!locationIds.length || locationIds.includes(id)) && !!dcs.find((d) => d.id === id)?.networkVolumeTypes?.includes("STANDARD");
+  const here = (gpu.dataCenters ?? []).filter((d) => d.availability !== "NONE" && ok(d.id));
+  return here.sort((a, b) => STOCK_RANK.indexOf(b.availability) - STOCK_RANK.indexOf(a.availability))[0]?.id ?? "";
+}
+
+/** Minutes of GPU time a per-run budget buys; 0 = no budget. */
+export const budgetMin = (budget: number | undefined, pricePerHr: number | undefined) =>
+  budget && pricePerHr ? Math.floor((budget / pricePerHr) * 60) : 0;
+
+/** What a pod that never turns itself off costs. */
+export const allDay = (pricePerHr: number) => ({ day: pricePerHr * 24, month: pricePerHr * 730 });
 
 /** A storage size someone typed: rounded up to 5 GB, never below the recommendation. */
 export const fitDisk = (gb: number, params: Record<string, number>) => Math.max(diskGb(params), Math.ceil(gb / 5) * 5 || 0);
 
 const slug = (id: string) => id.split("/").pop()!.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40);
+/** hose-qwen3-8b: the name of a model's pods and network volume. */
+export const hoseName = (id: string) => `hose-${slug(id)}`;
 
 /**
- * POST /v2/pods body. The watchdog script rides along in env and starts next to vLLM; it deletes the Pod
- * after idleMin quiet minutes, so a forgotten model stops billing even with Hose closed.
+ * POST /v2/pods body. The watchdog script rides along in env and starts next to vLLM; it deletes the Pod after
+ * idleMin quiet minutes (0 = never) or maxMin minutes on (0 = no budget), so a forgotten model stops billing even
+ * with Hose closed. The model and vLLM's compile cache go to /workspace: on a network volume they outlive the Pod.
  */
 export function podInput(
   model: Model,
@@ -139,20 +165,26 @@ export function podInput(
   watchdog: string,
   disk = diskGb(model.params),
   dataCenterIds: string[] = [],
+  maxMin = 0,
+  volumeId = "",
 ) {
   return {
-    name: `hose-${slug(model.id)}`,
+    name: hoseName(model.id),
     image: VLLM_IMAGE,
     gpu: { id: gpuId, count: 1, minCudaVersion: "13.0" },
     cloud,
     ...(dataCenterIds.length ? { dataCenterIds } : {}),
-    disk,
+    // with a volume the container disk is scratch only; without one it holds the model too
+    ...(volumeId ? { disk: 20, mounts: { network: [{ volumeId, path: "/workspace" }] } } : { disk: disk + 20 }),
     ports: ["8000/http"],
     env: {
       MODEL: model.id,
       HOSE_KEY: apiKey,
       HOSE_IDLE_MIN: String(idleMin),
+      HOSE_MAX_MIN: String(maxMin),
       HOSE_WATCHDOG: watchdog,
+      HF_HOME: "/workspace/hf",
+      VLLM_CACHE_ROOT: "/workspace/vllm",
       ...(hfToken ? { HF_TOKEN: hfToken } : {}),
     },
     entrypoint: [
@@ -182,6 +214,13 @@ export const sseText = (raw: string) =>
 /** A pod log line as a person reads it: the last progress update, no colour codes. */
 export const logText = (line: string) =>
   (line.split("\r").filter((s) => s.trim()).pop() ?? "").replace(/\x1b\[[0-9;]*m/g, "").trim();
+
+/**
+ * A healthy pod logs "create container" / "Pulling image" within seconds. None after 3 min means RunPod's host never
+ * started it (status still says RUNNING): worth another machine. The watchdog can't help, it never started either.
+ */
+export const stuckBoot = (createdAt: string | undefined, now: number, lines: number) =>
+  !lines && !!createdAt && now - Date.parse(createdAt) > 3 * 60000;
 
 /** Pods bill per second while RUNNING; `cost` is RunPod's $/hr for that pod. */
 export const burnRatePerHr = (pods: { status: string; cost: number }[]) =>
@@ -215,12 +254,16 @@ export type Config = Model & {
   gpuId: string;
   gpuName: string;
   cloud: Cloud;
-  idleMin: number;
+  idleMin: number; // 0 = never
+  budget?: number; // $ per run, then it turns off; unset or 0 = no limit
   price?: number; // $/hr when it was picked, for "Costs when on"
   vram?: number; // GPU memory in GB, from the catalog when it was picked
   disk?: number; // container disk in GB; unset = diskGb(params)
   location?: string; // "" or unset = anywhere; a region (EUROPE) or a data center id (EU-RO-1)
   podId?: string;
+  volumeId?: string; // network volume keeping the model between runs (Secure only); billed until removed
+  volumeDc?: string; // its data center: pods that mount it must run there
+  volumeGb?: number;
   pastPodIds: string[];
   spentPast: number; // ≈ $ of finished runs
   last?: Last;
@@ -261,6 +304,16 @@ export function endRun(c: Config) {
   c.spentPast += c.last?.runSpend ?? 0;
   if (c.last) c.last.runSpend = 0;
   c.podId = undefined;
+}
+
+const dollars = (n: number) => (Number.isInteger(n) ? `$${n}` : usd(n));
+
+/** When a config's pod turns itself off: "after 10 quiet min", "at $5 a run", both, or "never: on 24/7". */
+export function offText(c: { idleMin: number; budget?: number }) {
+  const idle = c.idleMin ? `after ${c.idleMin} quiet min` : "";
+  const cap = c.budget ? `${dollars(c.budget)} a run` : "";
+  if (idle && cap) return `${idle} or ${cap}`;
+  return idle || (cap ? `at ${cap}` : "never: on 24/7");
 }
 
 export function sidebarGroups<P extends { id: string }>(configs: Config[], pods: P[]) {

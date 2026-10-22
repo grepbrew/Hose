@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from "vue";
 import { hfSearch, hfModelInfo, hfCanDownload, type HfHit } from "../api";
-import { PRESETS, parseHfModel, label, billions, vramNeededGb, diskGb, fitDisk, weightsGb, type Cloud, type Config, type GpuCard, type Model, type Preset } from "../cost";
+import { PRESETS, parseHfModel, label, billions, vramNeededGb, diskGb, fitDisk, weightsGb, allDay, volumePerMo, usd, type Cloud, type Config, type GpuCard, type Model, type Preset } from "../cost";
 import type { Fleet } from "../fleet";
 import GpuPicker from "./GpuPicker.vue";
 import Icon from "./Icon.vue";
@@ -82,6 +82,8 @@ const gpu = ref<GpuCard | null>(null);
 const name = ref<string | null>(null); // null = follow the model and GPU
 const autoName = computed(() => `${label(model.value.id)} · ${gpu.value?.name ?? ""}`);
 const idleMin = ref(10);
+const budget = ref<number | null>(null); // $ per run; null = no limit
+const allDayCost = computed(() => (idleMin.value || budget.value || !gpu.value ? null : allDay(gpu.value.price))); // set = on 24/7
 const recDisk = computed(() => diskGb(model.value.params));
 const disk = ref<number | null>(null); // null = follow the model's recommended size
 // Only raising it is allowed: below the recommendation the model may not fit.
@@ -106,6 +108,7 @@ function build(): Config {
     location: location.value || undefined,
     disk: disk.value ?? recDisk.value,
     idleMin: idleMin.value,
+    budget: budget.value || undefined,
     price: g.price,
     vram: g.memory,
     pastPodIds: [],
@@ -208,19 +211,39 @@ async function save(turnOn: boolean) {
             <label for="idle">Turns off after</label>
             <select id="idle" v-model.number="idleMin" class="field">
               <option v-for="n in IDLE_CHOICES" :key="n" :value="n">{{ n }} quiet min</option>
+              <option :value="0">Never</option>
             </select>
             <span class="small muted">Even if you close Hose.</span>
           </div>
+          <div class="fieldset">
+            <label for="budget">Turn off after spending ($)</label>
+            <input
+              id="budget"
+              type="number"
+              class="field"
+              min="0"
+              step="1"
+              placeholder="No limit"
+              :value="budget ?? ''"
+              @change="budget = Number(($event.target as HTMLInputElement).value) || null"
+            />
+            <span class="small muted">{{ budget && gpu ? `≈ ${(budget / gpu.price).toFixed(1)} h on ${gpu.name}, each time it's on` : "Each time it's on." }}</span>
+          </div>
+          <p v-if="allDayCost" class="warn small span">
+            Stays on 24/7 until you turn it off: ≈ {{ usd(allDayCost.day) }}/day · ≈ {{ usd(allDayCost.month, 0) }}/month.
+          </p>
         </div>
       </section>
     </div>
 
     <footer class="foot">
       <span v-if="error" class="grow error" role="alert">{{ error }}</span>
-      <span v-else class="grow muted">You pay only while it's on.</span>
+      <span v-else class="grow muted">
+        {{ cloud === "SECURE" ? `You pay for the GPU only while it's on. Keeping the model ready costs ≈ ${usd(volumePerMo(disk ?? recDisk))}/mo until you remove it.` : "You pay only while it's on." }}
+      </span>
       <button class="btn big" type="button" :disabled="!gpu || !!busy" @click="save(false)">Save only</button>
       <button class="btn primary big" type="button" :disabled="!gpu || !!busy" @click="save(true)">
-        {{ busy === "on" ? "Turning on…" : gpu ? `Turn on · ${gpu.name} · $${gpu.price.toFixed(2)}/hr` : "Turn on" }}
+        {{ busy === "on" ? "Turning on…" : allDayCost ? `Turn on 24/7 · ${gpu!.name} · ≈ ${usd(allDayCost.month, 0)}/mo` : gpu ? `Turn on · ${gpu.name} · $${gpu.price.toFixed(2)}/hr` : "Turn on" }}
       </button>
     </footer>
   </section>
@@ -434,6 +457,9 @@ h2.fill {
   display: grid;
   grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr);
   gap: 12px;
+}
+.span {
+  grid-column: 1 / -1;
 }
 .foot {
   flex: none;

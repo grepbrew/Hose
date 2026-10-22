@@ -104,6 +104,12 @@ h3,
 .error {
   color: var(--danger);
 }
+/* money warning (24/7): amber bar, ink text: amber text alone is under 4.5:1 on white */
+.warn {
+  margin: 0;
+  border-left: 3px solid var(--amber);
+  padding-left: 8px;
+}
 .label {
   font-size: 10.5px;
   letter-spacing: 0.06em;

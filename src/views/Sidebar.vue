@@ -2,7 +2,7 @@
 import { ref, computed, onMounted } from "vue";
 import { isTauri } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
-import { label, ago, usd, type Sel } from "../cost";
+import { label, ago, usd, spendTotals, volumePerMo, type Config, type Sel } from "../cost";
 import type { Fleet } from "../fleet";
 import Icon from "./Icon.vue";
 
@@ -13,20 +13,31 @@ const f = props.fleet;
 const isSel = (s: Sel) => JSON.stringify(s) === JSON.stringify(props.sel);
 
 type Card = { sel: Sel; name: string; rate: string; note: string; kind: "on" | "starting" | "stray"; pct: number; barTitle: string };
+
+// what's left before it turns itself off: idle minutes, else budget dollars, else nothing (on 24/7)
+function offIn(c: Config) {
+  const left = f.offInMin(c);
+  if (left !== null) return { note: `off in ${left} min`, pct: (left / c.idleMin) * 100, title: `Turns itself off in ${left} of ${c.idleMin} quiet minutes` };
+  if (c.budget) {
+    const money = Math.max(0, c.budget - spendTotals(c).run);
+    return { note: `${usd(money)} left`, pct: (money / c.budget) * 100, title: `Turns itself off when this run reaches ${usd(c.budget)}` };
+  }
+  return { note: "on 24/7", pct: 100, title: "Stays on until you turn it off" };
+}
 const running = computed<Card[]>(() => [
   ...f.groups.value.running.map((c): Card => {
     const st = f.state(c);
     const pod = f.podOf(c);
-    const left = f.offInMin(c);
+    const off = offIn(c);
     const starting = st === "Starting";
     return {
       sel: { kind: "config", key: c.key },
       name: c.name,
       rate: `${usd(pod?.cost ?? c.price)}/hr`,
-      note: starting ? "loading model" : st === "Answering" ? "answering" : `off in ${left} min`,
+      note: starting ? "loading model" : st === "Answering" ? "answering" : off.note,
       kind: starting ? "starting" : "on",
-      pct: starting ? 40 : (left / c.idleMin) * 100,
-      barTitle: starting ? "Downloading and loading the model, 2–5 min" : `Turns itself off in ${left} of ${c.idleMin} quiet minutes`,
+      pct: starting ? 40 : off.pct,
+      barTitle: starting ? "Downloading and loading the model" : off.title,
     };
   }),
   ...f.groups.value.strays.map(
@@ -45,7 +56,14 @@ const saved = computed(() =>
     return {
       key: c.key,
       name: c.name,
-      sub: !auto ? `${label(c.id)} · ${c.gpuName}` : c.last?.startedAt ? `last on ${ago(c.last.startedAt, f.s.now)}` : "not turned on yet",
+      // a kept model bills while off, so it says so here first
+      sub: c.volumeId
+        ? `stored · ≈ ${usd(volumePerMo(c.volumeGb ?? 0))}/mo`
+        : !auto
+          ? `${label(c.id)} · ${c.gpuName}`
+          : c.last?.startedAt
+            ? `last on ${ago(c.last.startedAt, f.s.now)}`
+            : "not turned on yet",
     };
   }),
 );

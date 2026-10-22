@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { ref, computed, nextTick, onMounted, watch } from "vue";
 import { chatStream, podLogs, type LogLine } from "../api";
-import { label, type Config } from "../cost";
+import { label, stuckBoot, type Config } from "../cost";
 import type { Fleet } from "../fleet";
 
 const props = defineProps<{ apiKey: string; vllmKey: string; config: Config; fleet: Fleet }>();
+const emit = defineEmits<{ retry: [] }>();
 
 // History lives in the fleet (memory only), so it survives switching to another pod and back.
 const messages = computed(() => props.fleet.chatOf(props.config));
@@ -48,6 +49,9 @@ watch(
   },
   { immediate: true },
 );
+// no log line at all for minutes: RunPod's host never started the pod, so offer a new one (likely another machine)
+const pod = computed(() => props.fleet.podOf(props.config));
+const stuck = computed(() => state.value === "Starting" && stuckBoot(pod.value?.createdAt, props.fleet.s.now, logs.value.length));
 
 // ponytail: keep the last 20 turns so long chats stay inside the 8192-token context; token-count trimming if that bites
 const HISTORY = 20;
@@ -93,7 +97,11 @@ const onEnter = (e: KeyboardEvent) => {
   <section class="chat" aria-label="Chat">
     <!-- aria-live off: hundreds of "Extracting" lines would flood a screen reader; the status note says what's happening -->
     <ol v-if="state === 'Starting'" ref="logEl" class="log" role="log" aria-label="Startup log" aria-live="off">
-      <li v-if="!logs.length" class="wait muted">Waiting for the pod's first log lines…</li>
+      <li v-if="stuck" class="wait stuck">
+        <span>RunPod hasn't started this pod on its machine yet: no log lines for {{ Math.round((fleet.s.now - Date.parse(pod!.createdAt!)) / 60000) }} min, and it bills while it waits.</span>
+        <button class="btn" type="button" @click="emit('retry')">Try another machine</button>
+      </li>
+      <li v-else-if="!logs.length" class="wait muted">Waiting for the pod's first log lines…</li>
       <li v-for="(l, i) in logs" :key="i" :class="l.source"><time :datetime="l.ts">{{ hms(l.ts) }}</time>{{ l.line }}</li>
     </ol>
     <TransitionGroup v-else ref="list" tag="ol" name="msg" class="messages" aria-live="polite">
@@ -192,6 +200,14 @@ const onEnter = (e: KeyboardEvent) => {
 }
 .log .wait {
   border-left-color: transparent;
+}
+.log .stuck {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  border-left-color: var(--amber);
+  font-family: var(--pop);
+  font-size: 12.5px;
 }
 .log time {
   flex: none;

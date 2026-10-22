@@ -20,6 +20,11 @@ import {
   endRun,
   sidebarGroups,
   initialSelection,
+  budgetMin,
+  volumeDc,
+  stuckBoot,
+  offText,
+  allDay,
   PRESETS,
   VLLM_IMAGE,
   type Config,
@@ -152,15 +157,15 @@ describe("fitDisk", () => {
   const q8 = { BF16: 8190735360 }; // 16.4 GB of files
 
   it("recommendation rounds up to 5 GB", () => {
-    expect(diskGb({ BF16: 9653100528, F32: 3840 })).toBe(50); // 19.3 × 1.5 + 20 = 49 → 50
-    expect(diskGb(q8)).toBe(45);
+    expect(diskGb({ BF16: 9653100528, F32: 3840 })).toBe(30); // 19.3 × 1.1 + 5 = 26.2 → 30
+    expect(diskGb(q8)).toBe(25);
   });
 
   it.each([
     [52, 55],
-    [30, 45],
+    [20, 25],
     [120, 120],
-    [NaN, 45],
+    [NaN, 25],
   ])("%s", (gb, want) => expect(fitDisk(gb, q8)).toBe(want));
 });
 
@@ -177,9 +182,18 @@ describe("podInput", () => {
       gpu: { id: "NVIDIA GeForce RTX 4090", count: 1, minCudaVersion: "13.0" },
       cloud: "SECURE",
       ports: ["8000/http"],
-      // 8.19B BF16 = 16.38 GB weights -> ceil(16.38 * 1.5) + 20
+      // no volume: the container disk holds the model (16.38 GB × 1.1 + 5 = 23 → 25) plus 20 GB scratch
       disk: 45,
-      env: { MODEL: "Qwen/Qwen3-8B", HOSE_KEY: "k1", HOSE_IDLE_MIN: "10", HOSE_WATCHDOG: "WD", HF_TOKEN: "hf_x" },
+      env: {
+        MODEL: "Qwen/Qwen3-8B",
+        HOSE_KEY: "k1",
+        HOSE_IDLE_MIN: "10",
+        HOSE_MAX_MIN: "0",
+        HOSE_WATCHDOG: "WD",
+        HF_HOME: "/workspace/hf",
+        VLLM_CACHE_ROOT: "/workspace/vllm",
+        HF_TOKEN: "hf_x",
+      },
     });
     // no exec: if vLLM dies the container stays up, so the watchdog (not a fresh copy after a restart) deletes the pod
     expect(input.entrypoint.join(" ")).toMatch(/python3 -c "\$HOSE_WATCHDOG" & vllm serve "\$MODEL" .*--api-key "\$HOSE_KEY".*; sleep infinity$/);
@@ -193,11 +207,21 @@ describe("podInput", () => {
 
   it("disk and location", () => {
     const input = podInput(model, "NVIDIA GeForce RTX 4090", "SECURE", "", "k1", 10, "WD", 150, ["EU-RO-1"]);
-    expect(input).toMatchObject({ disk: 150, dataCenterIds: ["EU-RO-1"] });
+    expect(input).toMatchObject({ disk: 170, dataCenterIds: ["EU-RO-1"] });
+    expect(Object.keys(input)).not.toContain("mounts");
 
     const plain = podInput(model, "NVIDIA GeForce RTX 4090", "SECURE", "", "k1", 10, "WD");
-    expect(plain.disk).toBe(diskGb(model.params));
+    expect(plain.disk).toBe(diskGb(model.params) + 20);
     expect(Object.keys(plain)).not.toContain("dataCenterIds");
+
+    const stored = podInput(model, "NVIDIA GeForce RTX 4090", "SECURE", "", "k1", 10, "WD", 25, ["US-TX-3"], 0, "vol1");
+    expect(stored).toMatchObject({ disk: 20, mounts: { network: [{ volumeId: "vol1", path: "/workspace" }] }, dataCenterIds: ["US-TX-3"] });
+  });
+
+  it("budget", () => {
+    const input = podInput(model, "NVIDIA GeForce RTX 4090", "SECURE", "", "k1", 10, "WD", undefined, [], budgetMin(5, 0.89));
+
+    expect(input.env.HOSE_MAX_MIN).toBe("337"); // $5 at $0.89/hr = 337 min
   });
 });
 
@@ -329,6 +353,58 @@ describe("endRun", () => {
 
     expect(c).toMatchObject({ spentPast: 3.5, pastPodIds: ["p1"], last: { ...last, runSpend: 0 } });
     expect(c.podId).toBeUndefined();
+  });
+});
+
+describe("volumeDc", () => {
+  const dcs: DataCenter[] = [
+    { id: "US-TX-3", name: "US-TX-3", region: "NORTH_AMERICA", networkVolumeTypes: ["STANDARD"] },
+    { id: "EU-RO-1", name: "EU-RO-1", region: "EUROPE", networkVolumeTypes: ["HIGH_PERFORMANCE"] },
+    { id: "CA-MTL-3", name: "CA-MTL-3", region: "NORTH_AMERICA", networkVolumeTypes: ["STANDARD"] },
+  ];
+  const rtx = {
+    ...gpu("RTX 4090", 24, 0.89, 0.59),
+    dataCenters: [
+      { id: "EU-RO-1", availability: "HIGH" },
+      { id: "CA-MTL-3", availability: "LOW" },
+      { id: "US-TX-3", availability: "MEDIUM" },
+    ],
+  };
+
+  it.each<[string, Gpu, string[], string]>([
+    ["anywhere", rtx, [], "US-TX-3"],
+    ["EUROPE ids", rtx, ["EU-RO-1"], ""],
+    ["GPU without dataCenters", gpu("RTX 4090", 24, 0.89, 0.59), [], ""],
+  ])("%s", (_, g, ids, want) => expect(volumeDc(g, ids, dcs)).toBe(want));
+});
+
+describe("stuckBoot", () => {
+  const now = Date.parse("2026-10-22T12:00:00Z");
+  const ago = (min: number) => new Date(now - min * 60000).toISOString();
+
+  it.each<[string, string | undefined, number, boolean]>([
+    ["4 min, no lines", ago(4), 0, true],
+    ["2 min, no lines", ago(2), 0, false],
+    ["4 min, 5 lines", ago(4), 5, false],
+    ["no createdAt", undefined, 0, false],
+  ])("%s", (_, createdAt, lines, want) => expect(stuckBoot(createdAt, now, lines)).toBe(want));
+});
+
+describe("offText", () => {
+  it.each<[string, Partial<Config>, string]>([
+    ["idle 10", { idleMin: 10 }, "after 10 quiet min"],
+    ["idle 0 + $5", { idleMin: 0, budget: 5 }, "at $5 a run"],
+    ["idle 10 + $5", { idleMin: 10, budget: 5 }, "after 10 quiet min or $5 a run"],
+    ["idle 0 no budget", { idleMin: 0 }, "never: on 24/7"],
+  ])("%s", (_, over, want) => expect(offText(config(over))).toBe(want));
+});
+
+describe("allDay", () => {
+  it("24/7 cost", () => {
+    const cost = allDay(0.44);
+
+    expect(cost.day).toBeCloseTo(10.56);
+    expect(cost.month).toBeCloseTo(321.2); // 730 h a month
   });
 });
 

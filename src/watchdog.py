@@ -1,6 +1,9 @@
 # Runs on the Pod next to vLLM (passed in via env HOSE_WATCHDOG, see podInput in cost.ts).
-# Deletes the Pod once nobody has chatted for HOSE_IDLE_MIN minutes and nothing is running,
-# so a forgotten model stops billing even when the Mac sleeps or Hose is closed. Stdlib only.
+# Deletes the Pod once nobody has chatted for HOSE_IDLE_MIN minutes (0 = never) and nothing is running, or once
+# this run has had HOSE_MAX_MIN minutes (the budget, 0 = none), so a forgotten model stops billing even when the
+# Mac sleeps or Hose is closed. The model survives on the network volume at /workspace, if Hose mounted one. Stdlib only.
+# ponytail: the clock starts with the container, so a first run's image pull isn't counted against the budget;
+# Hose's backstop counts it while the app is open.
 import json
 import os
 import re
@@ -10,10 +13,12 @@ import urllib.request
 BOOT_S = 20 * 60  # vLLM not ready after this: stuck download or out of memory, give up
 
 
-def should_stop(now, booted_at, last_activity, ready, idle_s, boot_s):
+def should_stop(now, booted_at, last_activity, ready, idle_s, boot_s, max_s=0):
+    if max_s and now - booted_at > max_s:
+        return True
     if not ready:
         return now - booted_at > boot_s
-    return now - last_activity > idle_s
+    return bool(idle_s) and now - last_activity > idle_s
 
 
 def metrics():
@@ -43,19 +48,22 @@ def delete_self():
 
 def main():
     idle_s = float(os.environ.get("HOSE_IDLE_MIN", "10")) * 60
+    max_s = float(os.environ.get("HOSE_MAX_MIN", "0")) * 60
     booted_at = last_activity = time.time()
     ready, finished = False, None
-    while not should_stop(time.time(), booted_at, last_activity, ready, idle_s, BOOT_S):
+    while not should_stop(time.time(), booted_at, last_activity, ready, idle_s, BOOT_S, max_s):
         time.sleep(30)
         m = metrics()
-        if m is None:  # after ready this counts as idle, so a crashed vLLM still gets deleted
+        # after ready this counts as idle, so a crashed vLLM still gets deleted.
+        # ponytail: with idle Never and no budget (24/7) a crashed vLLM keeps billing; add a down-for-N-min stop if that bites
+        if m is None:
             continue
         busy, done = m
         if not ready:
             ready, last_activity = True, time.time()
         if busy or done != finished:
             last_activity, finished = time.time(), done
-    print("hose watchdog: idle, deleting pod", flush=True)
+    print("hose watchdog: idle or budget used, deleting pod", flush=True)
     while True:
         try:
             delete_self()
