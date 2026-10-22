@@ -113,13 +113,23 @@ export function podInput(model: Model, gpuId: string, cloud: Cloud, hfToken: str
   };
 }
 
-/** Text carried by OpenAI-style SSE from vLLM /v1/chat/completions with stream: true. */
-export const sseText = (raw: string) =>
+/** JSON payload of every `data:` line in raw SSE (complete lines only); `[DONE]` skipped. */
+export const sseData = (raw: string): any[] =>
   raw
     .split("\n")
     .filter((l) => l.startsWith("data: ") && l !== "data: [DONE]")
-    .map((l) => JSON.parse(l.slice(6)).choices?.[0]?.delta?.content ?? "")
+    .map((l) => JSON.parse(l.slice(6)));
+
+/** Text carried by OpenAI-style SSE from vLLM /v1/chat/completions with stream: true. */
+export const sseText = (raw: string) =>
+  sseData(raw)
+    .map((d) => d.choices?.[0]?.delta?.content ?? "")
     .join("");
+
+// ponytail: covers tqdm (\r-separated updates) and colour codes; other terminal escapes pass through as-is
+/** A pod log line as a person reads it: the last progress update, no colour codes. */
+export const logText = (line: string) =>
+  (line.split("\r").filter((s) => s.trim()).pop() ?? "").replace(/\x1b\[[0-9;]*m/g, "").trim();
 
 /** Pods bill per second while RUNNING; `cost` is RunPod's $/hr for that pod. */
 export const burnRatePerHr = (pods: { status: string; cost: number }[]) =>

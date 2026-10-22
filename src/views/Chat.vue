@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { ref, computed, nextTick, onMounted } from "vue";
-import { chatStream } from "../api";
+import { ref, computed, nextTick, onMounted, watch } from "vue";
+import { chatStream, podLogs, type LogLine } from "../api";
 import { label, type Config } from "../cost";
 import type { Fleet } from "../fleet";
 
-const props = defineProps<{ vllmKey: string; config: Config; fleet: Fleet }>();
+const props = defineProps<{ apiKey: string; vllmKey: string; config: Config; fleet: Fleet }>();
 
 // History lives in the fleet (memory only), so it survives switching to another pod and back.
 const messages = computed(() => props.fleet.chatOf(props.config));
@@ -16,6 +16,39 @@ const list = ref<{ $el: HTMLElement }>(); // the TransitionGroup; $el is the <ol
 const state = computed(() => props.fleet.state(props.config));
 const scroll = () => nextTick(() => list.value?.$el.lastElementChild?.scrollIntoView({ block: "end" }));
 onMounted(scroll);
+// While the pod boots, its RunPod logs (image pull, then vLLM downloading and loading the model) fill the chat area.
+// ponytail: last 300 lines in memory, plenty to see progress
+const LOG_MAX = 300;
+const logs = ref<LogLine[]>([]);
+const logEl = ref<HTMLElement>();
+const hms = (ts: string) => new Date(ts).toLocaleTimeString([], { hour12: false });
+watch(
+  () => (state.value === "Starting" ? props.config.podId : ""),
+  (podId, _, onCleanup) => {
+    logs.value = [];
+    if (!podId) return;
+    const ctl = new AbortController();
+    onCleanup(() => ctl.abort()); // ready, another pod, or page left
+    let since = "";
+    const add = (l: LogLine) => {
+      const el = logEl.value;
+      const atEnd = !el || el.scrollHeight - el.scrollTop - el.clientHeight < 40; // don't yank someone reading back
+      since = l.ts;
+      logs.value.push(l);
+      if (logs.value.length > LOG_MAX) logs.value.splice(0, logs.value.length - LOG_MAX);
+      if (atEnd) nextTick(() => logEl.value && (logEl.value.scrollTop = logEl.value.scrollHeight));
+    };
+    (async () => {
+      // the stream fails until the container exists and can drop mid-boot: resume from the last line every 5 s
+      while (!ctl.signal.aborted) {
+        await podLogs(props.apiKey, podId, since, add, ctl.signal).catch(() => {});
+        await new Promise((r) => setTimeout(r, 5000));
+      }
+    })();
+  },
+  { immediate: true },
+);
+
 // ponytail: keep the last 20 turns so long chats stay inside the 8192-token context; token-count trimming if that bites
 const HISTORY = 20;
 
@@ -58,7 +91,12 @@ const onEnter = (e: KeyboardEvent) => {
 
 <template>
   <section class="chat" aria-label="Chat">
-    <TransitionGroup ref="list" tag="ol" name="msg" class="messages" aria-live="polite">
+    <!-- aria-live off: hundreds of "Extracting" lines would flood a screen reader; the status note says what's happening -->
+    <ol v-if="state === 'Starting'" ref="logEl" class="log" role="log" aria-label="Startup log" aria-live="off">
+      <li v-if="!logs.length" class="wait muted">Waiting for the pod's first log lines…</li>
+      <li v-for="(l, i) in logs" :key="i" :class="l.source"><time :datetime="l.ts">{{ hms(l.ts) }}</time>{{ l.line }}</li>
+    </ol>
+    <TransitionGroup v-else ref="list" tag="ol" name="msg" class="messages" aria-live="polite">
       <li v-if="!messages.length" key="hello" class="empty muted">Say hello to {{ label(config.id) }}.</li>
       <li v-for="(m, i) in messages" :key="i" :class="m.role">{{ m.content || "…" }}</li>
     </TransitionGroup>
@@ -70,7 +108,8 @@ const onEnter = (e: KeyboardEvent) => {
         <textarea
           v-model="draft"
           aria-label="Message"
-          :placeholder="`Message ${label(config.id)}…`"
+          :placeholder="state === 'Starting' ? 'Chat opens when the model is ready…' : `Message ${label(config.id)}…`"
+          :disabled="state === 'Starting'"
           rows="2"
           @keydown.enter.exact="onEnter"
         />
@@ -122,6 +161,42 @@ const onEnter = (e: KeyboardEvent) => {
   padding: 10px 14px;
   border-radius: 14px 14px 14px 4px;
 }
+/* startup log, styled after RunPod's Logs tab: time column, accent bar per line */
+.log {
+  width: calc(100% - 40px);
+  max-width: 780px;
+  align-self: center;
+  flex-grow: 1;
+  overflow: auto;
+  list-style: none;
+  margin: 20px 20px 8px;
+  padding: 10px 0;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 11.5px;
+  line-height: 1.6;
+}
+.log li {
+  display: flex;
+  gap: 14px;
+  padding: 0 14px 0 10px;
+  border-left: 2px solid var(--accent);
+  margin-left: 4px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.log li.system {
+  border-left-color: var(--line);
+}
+.log .wait {
+  border-left-color: transparent;
+}
+.log time {
+  flex: none;
+  color: var(--muted);
+}
 .empty {
   align-self: center;
   margin: auto 0;
@@ -169,6 +244,9 @@ textarea {
   resize: none;
   outline: none;
   width: 100%;
+}
+textarea:disabled {
+  cursor: not-allowed;
 }
 .kbd {
   font-size: 10.5px;

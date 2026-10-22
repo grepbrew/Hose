@@ -9,6 +9,7 @@ export const state = {
   pods: [] as Pod[],
   checks: {} as Record<string, number>, // readiness checks seen per pod; a new pod turns ready on the second
   n: 0,
+  booting: "", // a pod that never turns ready (seed starting)
 };
 
 // Fields a running GPU pod carries in GET /v2/pods (Pod schema in api.runpod.io/v2/openapi.json).
@@ -34,9 +35,14 @@ const pod = (id: string, name: string, gpuId: string, cost: number, minutesAgo =
 export function seed(name: string | null) {
   state.pods = [];
   state.checks = {};
+  state.booting = "";
   if (name === "on" || name === "two") {
     state.pods.push(pod("pod1", "hose-qwen3-8b", "NVIDIA RTX 4090", 0.89, 21));
     state.checks.pod1 = 1;
+  }
+  if (name === "starting") {
+    state.pods.push(pod("pod1", "hose-qwen3-8b", "NVIDIA RTX 4090", 0.89, 1));
+    state.booting = "pod1";
   }
   if (name === "stray") {
     state.pods.push(pod("pod9", "hose-llama-3-1-8b-instruct", "NVIDIA RTX 4090", 0.89, 5));
@@ -84,11 +90,29 @@ const denied = (request: Request) => request.headers.get("Authorization") !== "B
 const unauthorized = () => new HttpResponse("Unauthorized", { status: 401 });
 const podId = (request: Request) => new URL(request.url).hostname.split("-8000.")[0];
 
+const sse = (chunks: string[]) => {
+  const enc = new TextEncoder();
+  const body = new ReadableStream({
+    start(c) {
+      chunks.forEach((s) => c.enqueue(enc.encode(s)));
+      c.close();
+    },
+  });
+  return new HttpResponse(body, { headers: { "Content-Type": "text/event-stream" } });
+};
+
 // vLLM's OpenAI stream, cut mid-line on purpose so the client has to buffer partial lines
 const SSE = [
   'data: {"choices":[{"index":0,"delta":{"role":"assistant","content":""}}]}\n\ndata: {"choices":[{"index":0,"delta":{"content":"Hello "}}]}\n\ndata: {"choi',
   'ces":[{"index":0,"delta":{"content":"from fake "}}]}\n\ndata: {"choices":[{"index":0,"delta":{"content":"GPU"}}]}\n\n',
   'data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n',
+];
+
+// GET /v2/pods/{id}/logs (openapi example shape): image pull, then vLLM with a colour code and a tqdm \r line; cut mid-line
+const LOGS = [
+  'id: 2026-10-22T10:00:01Z/000000000001\ndata: {"ts":"2026-10-22T10:00:01Z","source":"system","line":"Pulling image vllm/vllm-openai:v0.32.0"}\n\nid: 2026-10-22T10:00:40Z/000000000002\ndata: {"ts":"2026-10-22T10:00:40Z","source":"cont',
+  'ainer","line":"\\u001b[32mINFO\\u001b[0m Starting vLLM API server"}\n\nid: 2026-10-22T10:00:52Z/000000000003\ndata: {"ts":"2026-10-22T10:00:52Z","source":"container","line":"Downloading 10%\\rDownloading 100%"}\n\n',
+  'id: 2026-10-22T10:01:30Z/000000000004\ndata: {"ts":"2026-10-22T10:01:30Z","source":"container","line":"Loading weights took 12.3 seconds"}\n\n',
 ];
 
 export const handlers = [
@@ -131,19 +155,14 @@ export const handlers = [
   http.get("https://*.proxy.runpod.net/v1/models", ({ request }) => {
     const id = podId(request);
     const seen = (state.checks[id] = (state.checks[id] ?? 0) + 1);
-    const ready = state.pods.some((p) => p.id === id) && seen > 1;
+    const ready = state.pods.some((p) => p.id === id) && seen > 1 && id !== state.booting;
     return ready ? HttpResponse.json({ object: "list", data: [{ id: "Qwen/Qwen3-8B" }] }) : new HttpResponse("Not Found", { status: 404 });
   }),
-  http.post("https://*.proxy.runpod.net/v1/chat/completions", () => {
-    const enc = new TextEncoder();
-    const body = new ReadableStream({
-      start(c) {
-        SSE.forEach((s) => c.enqueue(enc.encode(s)));
-        c.close();
-      },
-    });
-    return new HttpResponse(body, { headers: { "Content-Type": "text/event-stream" } });
-  }),
+  // a reconnect (since=) has nothing new, so the client's retry loop adds no duplicates
+  http.get(`${REST}/pods/:id/logs`, ({ request }) =>
+    denied(request) ? unauthorized() : sse(new URL(request.url).searchParams.has("since") ? [] : LOGS),
+  ),
+  http.post("https://*.proxy.runpod.net/v1/chat/completions", () => sse(SSE)),
   http.get("https://huggingface.co/api/whoami-v2", () => HttpResponse.json({ name: "tester" })),
   http.get("https://huggingface.co/api/models", ({ request }) => {
     const q = (new URL(request.url).searchParams.get("search") ?? "").toLowerCase();

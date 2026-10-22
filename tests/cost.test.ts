@@ -8,6 +8,7 @@ import {
   podInput,
   burnRatePerHr,
   sseText,
+  logText,
   migrateConfigs,
   upsertConfig,
   spendTotals,
@@ -129,6 +130,16 @@ describe("sseText", () => {
   it("joins deltas", () => {
     // captured from a real vLLM pod during the 2026-10-22 spike
     expect(sseText(STREAM)).toBe(STREAM_TEXT);
+  });
+});
+
+describe("logText", () => {
+  it.each([
+    ["strips ANSI colour", "\x1b[32mINFO\x1b[0m Starting", "INFO Starting"],
+    ["keeps the last progress update", "Downloading 10%\rDownloading 100%", "Downloading 100%"],
+    ["blank stays blank", " \r", ""],
+  ])("%s", (_, line, expected) => {
+    expect(logText(line)).toBe(expected);
   });
 });
 

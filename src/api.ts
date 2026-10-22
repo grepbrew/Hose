@@ -2,7 +2,7 @@
 // management API blocks browser CORS); in vite dev / tests plain fetch is used and msw answers.
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import { isTauri } from "@tauri-apps/api/core";
-import { sseText, CHAT_TAGS, type Cloud, type Gpu, type HfInfo, type Pod } from "./cost";
+import { sseData, sseText, logText, CHAT_TAGS, type Cloud, type Gpu, type HfInfo, type Pod } from "./cost";
 
 const REST = "https://api.runpod.io/v2";
 const GQL = "https://api.runpod.io/graphql";
@@ -52,6 +52,31 @@ export const listHosePods = (key: string) =>
 export const createPod = (key: string, input: object) => runpod<Pod>(`${REST}/pods`, key, { method: "POST", body: JSON.stringify(input) });
 
 export const deletePod = (key: string, id: string) => runpod<void>(`${REST}/pods/${id}`, key, { method: "DELETE" });
+
+export type LogLine = { source: "system" | "container"; line: string; ts: string };
+
+/**
+ * Streams the pod's RunPod logs (system: image pull; container: vLLM download and load) until the stream
+ * ends or signal aborts. since = ts of the last line seen, to resume; empty backfills the last 300 lines.
+ */
+export async function podLogs(key: string, id: string, since: string, onLine: (l: LogLine) => void, signal: AbortSignal) {
+  const q = since ? `since=${encodeURIComponent(since)}` : "tail=300";
+  const res = await http(`${REST}/pods/${id}/logs?${q}`, { headers: { Authorization: `Bearer ${key}` }, signal });
+  if (res.status === 401 || res.status === 403) throw new Error("RunPod rejected this key");
+  if (!res.ok || !res.body) throw new Error(`RunPod logs error ${res.status}`);
+  const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+  signal.addEventListener("abort", () => void reader.cancel().catch(() => {})); // the Tauri fetch abort may not cut a body already streaming
+  let rest = "";
+  for (let r = await reader.read(); !r.done; r = await reader.read()) {
+    const raw = rest + r.value;
+    const cut = raw.lastIndexOf("\n") + 1; // only complete lines parse
+    rest = raw.slice(cut);
+    for (const l of sseData(raw.slice(0, cut)) as LogLine[]) {
+      const line = logText(l.line);
+      if (line) onLine({ ...l, line });
+    }
+  }
+}
 
 // ponytail: the whole data-center list once per app run (~40 rows); unknown ids show as the id
 let dataCenters: Promise<Record<string, string>> | null = null;

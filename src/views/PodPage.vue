@@ -120,7 +120,7 @@ const NOTE: Record<string, string> = { Starting: "· loading the model, 2–5 mi
         </div>
       </section>
 
-      <Chat v-else-if="config && state !== 'Off'" :config="config" :fleet="fleet" :vllm-key="vllmKey" />
+      <Chat v-else-if="config && state !== 'Off'" :config="config" :fleet="fleet" :api-key="apiKey" :vllm-key="vllmKey" />
 
       <section v-else-if="config" class="empty">
         <div class="icon-tile"><Icon name="power" :size="22" /></div>

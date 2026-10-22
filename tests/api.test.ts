@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { setupServer } from "msw/node";
 import { handlers, seed } from "./mocks/handlers";
-import { getBalance, listHosePods, podReady, chatStream, hfSearch, getDatacenterName } from "../src/api";
+import { getBalance, listHosePods, podReady, chatStream, podLogs, hfSearch, getDatacenterName, type LogLine } from "../src/api";
 
 const server = setupServer(...handlers);
 let calls: string[] = [];
@@ -50,6 +50,25 @@ describe("chatStream", () => {
 
     expect(text).toBe("Hello from fake GPU");
     expect(shown).toBe("Hello from fake GPU");
+  });
+});
+
+describe("podLogs", () => {
+  it("streams cleaned lines", async () => {
+    const lines: LogLine[] = [];
+
+    await podLogs("good-key", "pod1", "", (l) => lines.push(l), new AbortController().signal);
+
+    expect(lines).toEqual([
+      { ts: "2026-10-22T10:00:01Z", source: "system", line: "Pulling image vllm/vllm-openai:v0.32.0" },
+      { ts: "2026-10-22T10:00:40Z", source: "container", line: "INFO Starting vLLM API server" },
+      { ts: "2026-10-22T10:00:52Z", source: "container", line: "Downloading 100%" },
+      { ts: "2026-10-22T10:01:30Z", source: "container", line: "Loading weights took 12.3 seconds" },
+    ]);
+  });
+
+  it("bad key", async () => {
+    await expect(podLogs("bad", "pod1", "", () => {}, new AbortController().signal)).rejects.toThrow("RunPod rejected this key");
   });
 });
 
