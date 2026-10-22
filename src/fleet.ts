@@ -1,7 +1,7 @@
 // The user's pod configs (remembered on this Mac) and their Pods on RunPod, polled while the app is open.
 // Shared by the Sidebar, New pod and pod pages.
 import { reactive, computed, watch, onUnmounted } from "vue";
-import { listHosePods, createPod, deletePod, createVolume, deleteVolume, resizeVolume, podReady, getBalance, getGpus, getDatacenterName, getDataCenters, type Message, type Pod } from "./api";
+import { listHosePods, createPod, deletePod, createVolume, deleteVolume, resizeVolume, podReady, podLoad, getBalance, getGpus, getDatacenterName, getDataCenters, type Message, type Pod } from "./api";
 import { burnRatePerHr, podInput, dcIds, diskGb, volumeDc, hoseName, migrateConfigs, upsertConfig, snapshotOf, endRun, sidebarGroups, budgetMin, type Config } from "./cost";
 import WATCHDOG from "./watchdog.py?raw";
 
@@ -95,6 +95,21 @@ export function useFleet(key: () => string, vllmKey: () => string, hfToken: () =
 
   const pollMoney = guard(async () => void (s.balance = await getBalance(key())));
 
+  // Other apps use the pod through its API (shown in Details): their requests count as activity, as the watchdog
+  // counts them, so the backstop never deletes a pod in use. A pod's first reading only sets the baseline.
+  const served: Record<string, number> = {}; // podId -> vLLM's finished-request count at the last poll
+  const pollUse = () =>
+    Promise.all(
+      s.pods
+        .filter((p) => s.ready[p.id])
+        .map(async (p) => {
+          const load = await podLoad(p.id, vllmKey());
+          if (!load) return;
+          if (load.busy || (p.id in served && load.done !== served[p.id])) touch(p.id);
+          served[p.id] = load.done;
+        }),
+    );
+
   /**
    * Secure: the model lives on a network volume in one data center, made on the first Turn on, so later pods skip
    * the download. Resolves true when that data center had no free GPU and the pod went elsewhere without it.
@@ -156,14 +171,15 @@ export function useFleet(key: () => string, vllmKey: () => string, hfToken: () =
     running = true;
     s.now = Date.now();
     s.session += (ratePerHr.value * TICK) / 3600;
+    // ponytail: /metrics every 30 s like the watchdog, before refresh so the backstop sees it
+    if (ticks++ % 6 === 0) await Promise.all([pollMoney(), pollUse()]);
     await refresh();
-    if (ticks++ % 6 === 0) await pollMoney();
     running = false;
   };
   const timer = setInterval(loop, TICK * 1000);
   onUnmounted(() => clearInterval(timer));
 
-  return { s, chatOf, groups, ratePerHr, podOf, state, offInMin, turnOn, turnOff, removeStorage, turnOffPod, save, forget, touch, refresh, start: loop };
+  return { s, chatOf, groups, ratePerHr, podOf, state, offInMin, turnOn, turnOff, removeStorage, turnOffPod, save, forget, touch, refresh, pollUse, start: loop };
 }
 
 export type Fleet = ReturnType<typeof useFleet>;

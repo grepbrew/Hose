@@ -188,7 +188,7 @@ const NOTE: Record<string, string> = { Starting: "· loading the model", Answeri
       </section>
 
       <aside class="details" :class="{ hidden: !showDetails }" aria-label="Pod details" :inert="!showDetails">
-        <Details :fleet="fleet" :api-key="apiKey" :config="config" :stray="stray" :busy="busy" @turn-on="turnOn" @turn-off="turnOff" @change-gpu="changeGpu" @forget="forget" />
+        <Details :fleet="fleet" :api-key="apiKey" :vllm-key="vllmKey" :config="config" :stray="stray" :busy="busy" @turn-on="turnOn" @turn-off="turnOff" @change-gpu="changeGpu" @forget="forget" />
       </aside>
     </div>
   </section>

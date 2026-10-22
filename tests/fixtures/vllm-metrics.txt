@@ -1,0 +1,17 @@
+# HELP vllm:num_requests_running Number of requests in model execution batches.
+# TYPE vllm:num_requests_running gauge
+vllm:num_requests_running{engine="0",model_name="Qwen/Qwen3.5-4B"} 0.0
+# HELP vllm:num_requests_waiting Number of requests waiting to be processed.
+# TYPE vllm:num_requests_waiting gauge
+vllm:num_requests_waiting{engine="0",model_name="Qwen/Qwen3.5-4B"} 0.0
+# HELP vllm:num_requests_waiting_by_reason Number of waiting requests by reason. Reason labels: 'capacity' = waiting for scheduling capacity; 'deferred' = deferred by transient constraints (LoRA budget, KV transfer, blocked status). Sum of all reasons equals vllm:num_requests_waiting.
+# TYPE vllm:num_requests_waiting_by_reason gauge
+vllm:num_requests_waiting_by_reason{engine="0",model_name="Qwen/Qwen3.5-4B",reason="capacity"} 0.0
+vllm:num_requests_waiting_by_reason{engine="0",model_name="Qwen/Qwen3.5-4B",reason="deferred"} 0.0
+# HELP vllm:request_success_total Count of successfully processed requests.
+# TYPE vllm:request_success_total counter
+vllm:request_success_total{engine="0",finished_reason="stop",model_name="Qwen/Qwen3.5-4B"} 2.0
+vllm:request_success_total{engine="0",finished_reason="length",model_name="Qwen/Qwen3.5-4B"} 0.0
+vllm:request_success_total{engine="0",finished_reason="abort",model_name="Qwen/Qwen3.5-4B"} 0.0
+vllm:request_success_total{engine="0",finished_reason="error",model_name="Qwen/Qwen3.5-4B"} 0.0
+vllm:request_success_total{engine="0",finished_reason="repetition",model_name="Qwen/Qwen3.5-4B"} 0.0

@@ -204,11 +204,49 @@ export const sseData = (raw: string): any[] =>
     .filter((l) => l.startsWith("data: ") && l !== "data: [DONE]")
     .map((l) => JSON.parse(l.slice(6)));
 
-/** Text carried by OpenAI-style SSE from vLLM /v1/chat/completions with stream: true. */
-export const sseText = (raw: string) =>
-  sseData(raw)
-    .map((d) => d.choices?.[0]?.delta?.content ?? "")
-    .join("");
+export type Usage = { prompt_tokens: number; completion_tokens: number };
+
+/**
+ * Qwen-style models write their reasoning as `<think>…</think>` before the answer. While it streams, an open
+ * `<think>` is all thinking. Some templates (Qwen3.5) open it in the prompt, so only `</think>` shows up:
+ * `open` says thinking was asked for, so text before any `</think>` is thinking so far.
+ */
+export function splitThink(text: string, open = false) {
+  const close = text.indexOf("</think>");
+  const opened = text.trimStart().startsWith("<think>");
+  if (close < 0 && !opened && !open) return { thinking: "", content: text };
+  const start = opened ? text.indexOf("<think>") + 7 : 0;
+  if (close < 0) return { thinking: text.slice(start).trim(), content: "" };
+  return { thinking: text.slice(start, close).trim(), content: text.slice(close + 8).trimStart() };
+}
+
+/**
+ * The reply carried by OpenAI-style SSE from vLLM /v1/chat/completions with stream: true: the answer, the reasoning
+ * (`<think>` tags in the text, or a separate reasoning field as gpt-oss sends it) and the token usage (last chunk).
+ * `open` while streaming a thinking reply; leave it off for the finished stream, so a model with no thinking mode
+ * (no `</think>` ever came) gets its text back as the answer.
+ */
+export function sseReply(raw: string, open = false) {
+  const chunks = sseData(raw);
+  const delta = (d: any) => d.choices?.[0]?.delta ?? {};
+  const reasoning = chunks.map((d) => delta(d).reasoning ?? delta(d).reasoning_content ?? "").join("");
+  const { thinking, content } = splitThink(chunks.map((d) => delta(d).content ?? "").join(""), open && !reasoning);
+  const usage: Usage | undefined = chunks.filter((d) => d.usage).at(-1)?.usage;
+  return { content, thinking: reasoning + thinking, ...(usage ? { usage } : {}) };
+}
+
+/** The muted line under a reply: "12 in · 96 out · 40 tok/s · 0.4 s to first token". */
+export function replyStats(usage: Usage, firstMs: number, genMs: number) {
+  const speed = genMs > 0 ? [`${Math.round(usage.completion_tokens / (genMs / 1000))} tok/s`] : [];
+  return [`${usage.prompt_tokens} in`, `${usage.completion_tokens} out`, ...speed, `${(firstMs / 1000).toFixed(1)} s to first token`].join(" · ");
+}
+
+/** vLLM /metrics read like the on-pod watchdog does: requests running + waiting, and requests finished so far. */
+export function vllmLoad(text: string) {
+  const total = (name: string) =>
+    [...text.matchAll(new RegExp(`^${name}(?:\\{[^}]*\\})? (\\S+)`, "gm"))].reduce((sum, m) => sum + Number(m[1]), 0);
+  return { busy: total("vllm:num_requests_running") + total("vllm:num_requests_waiting"), done: total("vllm:request_success_total") };
+}
 
 // ponytail: covers tqdm (\r-separated updates) and colour codes; other terminal escapes pass through as-is
 /** A pod log line as a person reads it: the last progress update, no colour codes. */
@@ -267,6 +305,8 @@ export type Config = Model & {
   pastPodIds: string[];
   spentPast: number; // ≈ $ of finished runs
   last?: Last;
+  think?: boolean; // chat: ask the model to reason first
+  log?: boolean; // chat: server log panel under the messages
 };
 
 /** Records saved before 2026-10-22 had no key or name: one config per model id. */

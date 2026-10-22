@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { setupServer } from "msw/node";
-import { handlers, seed } from "./mocks/handlers";
-import { getBalance, listHosePods, podReady, chatStream, podLogs, hfSearch, getDatacenterName, type LogLine } from "../src/api";
+import { handlers, seed, state } from "./mocks/handlers";
+import { getBalance, listHosePods, podReady, chatStream, podLogs, hfSearch, getDatacenterName, type LogLine, type Message, type Reply } from "../src/api";
 
 const server = setupServer(...handlers);
 let calls: string[] = [];
@@ -44,12 +44,29 @@ describe("podReady", () => {
 
 describe("chatStream", () => {
   it("collects", async () => {
-    let shown = "";
+    let shown: Reply | null = null;
 
-    const text = await chatStream("pod1", "k1", "Qwen/Qwen3-8B", [{ role: "user", content: "hi" }], (t) => (shown = t));
+    const reply = await chatStream("pod1", "k1", "Qwen/Qwen3-8B", [{ role: "user", content: "hi" }], false, (r) => (shown = r));
 
-    expect(text).toBe("Hello from fake GPU");
-    expect(shown).toBe("Hello from fake GPU");
+    expect(reply).toMatchObject({ content: "Hello from fake GPU", thinking: "" });
+    expect(reply.stats).toMatch(/^9 in · 3 out · /);
+    expect(shown).toEqual(reply);
+  });
+
+  it.each([
+    ["think", true, { chat_template_kwargs: { enable_thinking: true }, stream_options: { include_usage: true } }],
+    ["no think", false, { chat_template_kwargs: { enable_thinking: false }, max_tokens: 1024 }],
+  ])("body %s", async (_, think, expected) => {
+    const history: Message[] = [
+      { role: "user", content: "hi" },
+      { role: "assistant", content: "x", thinking: "t", stats: "s" },
+    ];
+
+    await chatStream("pod1", "k1", "Qwen/Qwen3-8B", history, think, () => {});
+
+    expect(state.lastChat).toMatchObject({ ...expected, messages: [{ role: "user", content: "hi" }, { role: "assistant", content: "x" }] });
+    expect(state.lastChat!.messages[1]).toEqual({ role: "assistant", content: "x" });
+    expect("max_tokens" in state.lastChat!).toBe(!think);
   });
 });
 

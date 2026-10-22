@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { ref, computed, watchEffect } from "vue";
-import { getGpus, getDatacenterName, getDataCenters } from "../api";
+import { getGpus, getDatacenterName, getDataCenters, podUrl } from "../api";
 import { spendTotals, snapshotOf, diskGb, fitDisk, placeName, duration, ago, usd, offText, allDay, volumePerMo, VLLM_IMAGE, type Cloud, type Config, type Pod } from "../cost";
 import type { Fleet } from "../fleet";
 import Icon from "./Icon.vue";
 
 // "Summary first" (mockup option C): spend tiles, the main action, then icon lists. Setup is editable only while Off.
-const props = defineProps<{ fleet: Fleet; apiKey: string; config?: Config; stray?: Pod; busy: boolean }>();
+const props = defineProps<{ fleet: Fleet; apiKey: string; vllmKey: string; config?: Config; stray?: Pod; busy: boolean }>();
 const emit = defineEmits<{ turnOn: []; turnOff: []; changeGpu: []; forget: [] }>();
 
 const f = props.fleet;
@@ -71,6 +71,21 @@ function setDisk(e: Event) {
   el.value = String(cfg.disk);
 }
 const confirming = ref(false);
+
+// The running model's OpenAI-compatible API, for other apps. A new pod (every Turn on) means a new address.
+const ready = computed(() => props.config && ["On", "Answering"].includes(f.state(props.config)));
+const apiRows = computed(() => [
+  { what: "base URL", label: "Base URL", shown: `${podUrl(props.config!.podId!)}/v1`, value: `${podUrl(props.config!.podId!)}/v1` },
+  { what: "API key", label: "API key", shown: "••••••••••••", value: props.vllmKey },
+  { what: "model name", label: "Model", shown: props.config!.id, value: props.config!.id },
+]);
+const copied = ref("");
+// ponytail: the webview's clipboard; tauri-plugin-clipboard-manager if WKWebView ever refuses it
+const copy = (r: { what: string; value: string }) =>
+  navigator.clipboard.writeText(r.value).then(() => {
+    copied.value = r.what;
+    setTimeout(() => copied.value === r.what && (copied.value = ""), 1500);
+  });
 </script>
 
 <template>
@@ -174,6 +189,17 @@ const confirming = ref(false);
             <Icon name="package" /><span class="wrap">{{ config.id }}<small>{{ VLLM }} · {{ config.disk ?? diskGb(config.params) }} GB disk</small></span>
           </div>
         </template>
+      </section>
+
+      <section v-if="ready" class="sec">
+        <div class="sechead"><span class="label">Use from other apps</span></div>
+        <div v-for="r in apiRows" :key="r.what" class="f">
+          <span class="l">{{ r.label }}</span>
+          <button class="inputish" type="button" :aria-label="`Copy ${r.what}`" @click="copy(r)">
+            <span class="mono clip">{{ r.shown }}</span><span class="change">{{ copied === r.what ? "Copied" : "Copy" }}</span>
+          </button>
+        </div>
+        <p class="muted tiny">Works with any OpenAI-compatible app. The address changes each time you turn it on. Anyone with the key can use the model while it's on, and their requests keep it on.</p>
       </section>
 
       <section class="sec">
@@ -289,6 +315,12 @@ const confirming = ref(false);
 .wrap {
   min-width: 0;
   overflow-wrap: anywhere;
+}
+.clip {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .inline {
   display: inline-flex;

@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import STREAM from "./fixtures/chat-stream.txt?raw";
 import STREAM_TEXT from "./fixtures/chat-stream.expected.txt?raw";
+import THINK_STREAM from "./fixtures/chat-stream-think.txt?raw";
+import METRICS from "./fixtures/vllm-metrics.txt?raw";
 import {
   vramNeededGb,
   parseHfModel,
@@ -11,7 +13,10 @@ import {
   dcIds,
   placeName,
   burnRatePerHr,
-  sseText,
+  sseReply,
+  splitThink,
+  replyStats,
+  vllmLoad,
   logText,
   migrateConfigs,
   upsertConfig,
@@ -225,10 +230,66 @@ describe("podInput", () => {
   });
 });
 
-describe("sseText", () => {
+describe("sseReply", () => {
   it("joins deltas", () => {
     // captured from a real vLLM pod during the 2026-10-22 spike
-    expect(sseText(STREAM)).toBe(STREAM_TEXT);
+    expect(sseReply(STREAM).content).toBe(STREAM_TEXT);
+  });
+
+  it("thinking + usage", () => {
+    // Qwen3.5-4B with enable_thinking, real pod 2026-10-22: the template opens <think> in the prompt, only </think> streams
+    const reply = sseReply(THINK_STREAM);
+
+    expect(reply.content).toBe("17 times 3 equals 51.");
+    expect(reply.thinking).toMatch(/^Thinking Process:/);
+    expect(reply.usage).toEqual({ prompt_tokens: 22, total_tokens: 254, completion_tokens: 232 });
+  });
+
+  it("thinking while streaming", () => {
+    const partial = THINK_STREAM.slice(0, THINK_STREAM.indexOf("</think>")).replace(/\n[^\n]*$/, "\n");
+
+    expect(sseReply(partial, true)).toMatchObject({ content: "", thinking: expect.stringMatching(/^Thinking Process:/) });
+  });
+
+  it.each([false, true])("reasoning field, open %s", (open) => {
+    const raw = [
+      { choices: [{ delta: { reasoning_content: "Add " } }] },
+      { choices: [{ delta: { reasoning: "them." } }] },
+      { choices: [{ delta: { content: "4" } }] },
+      { choices: [], usage: { prompt_tokens: 9, completion_tokens: 3 } },
+    ]
+      .map((d) => `data: ${JSON.stringify(d)}\n\n`)
+      .join("");
+
+    expect(sseReply(raw, open)).toEqual({ content: "4", thinking: "Add them.", usage: { prompt_tokens: 9, completion_tokens: 3 } });
+  });
+});
+
+describe("splitThink", () => {
+  it.each([
+    ["closed", "<think>a</think>\n\nb", false, { thinking: "a", content: "b" }],
+    ["still thinking", "<think>a", false, { thinking: "a", content: "" }],
+    ["template opened it", "a</think>b", false, { thinking: "a", content: "b" }],
+    ["template opened it, still thinking", "a", true, { thinking: "a", content: "" }],
+    ["no thinking", "plain", false, { thinking: "", content: "plain" }],
+  ])("%s", (_, text, open, expected) => {
+    expect(splitThink(text, open)).toEqual(expected);
+  });
+});
+
+describe("vllmLoad", () => {
+  it("reads running, waiting and finished", () => {
+    // real /metrics lines after 2 chats; the *_by_reason gauges must not count twice
+    expect(vllmLoad(METRICS)).toEqual({ busy: 0, done: 2 });
+  });
+});
+
+describe("replyStats", () => {
+  it.each([
+    ["with speed", 2400, "12 in · 96 out · 40 tok/s · 0.4 s to first token"],
+    ["no generation time", 0, "12 in · 96 out · 0.4 s to first token"],
+  ])("%s", (_, genMs, expected) => {
+    expect(replyStats({ prompt_tokens: 12, completion_tokens: 96 }, 400, genMs)).toBe(expected);
   });
 });
 

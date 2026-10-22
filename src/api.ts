@@ -2,7 +2,7 @@
 // management API blocks browser CORS); in vite dev / tests plain fetch is used and msw answers.
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import { isTauri } from "@tauri-apps/api/core";
-import { sseData, sseText, logText, placeName, CHAT_TAGS, type Cloud, type DataCenter, type Gpu, type HfInfo, type Pod } from "./cost";
+import { sseData, sseReply, replyStats, vllmLoad, logText, placeName, CHAT_TAGS, type Cloud, type DataCenter, type Gpu, type HfInfo, type Pod } from "./cost";
 
 const REST = "https://api.runpod.io/v2";
 const GQL = "https://api.runpod.io/graphql";
@@ -106,7 +106,7 @@ export const getDatacenterName = async (key: string, id: string) => placeName(id
 
 // --- chat (vLLM on the pod, through RunPod's public proxy, guarded by vLLM's --api-key) ---------------
 
-const podUrl = (id: string) => `https://${id}-8000.proxy.runpod.net`;
+export const podUrl = (id: string) => `https://${id}-8000.proxy.runpod.net`;
 
 /** vLLM answers /v1/models once the model is loaded; before that the proxy returns 404/502. */
 export async function podReady(id: string, apiKey: string): Promise<boolean> {
@@ -117,26 +117,53 @@ export async function podReady(id: string, apiKey: string): Promise<boolean> {
   }
 }
 
-export type Message = { role: "user" | "assistant"; content: string };
+/** Load on the pod from vLLM's /metrics (any client, not just Hose); null while it can't be read. */
+export async function podLoad(id: string, apiKey: string) {
+  try {
+    const res = await http(`${podUrl(id)}/metrics`, { headers: { Authorization: `Bearer ${apiKey}` } });
+    return res.ok ? vllmLoad(await res.text()) : null;
+  } catch {
+    return null;
+  }
+}
 
-/** Streams the reply; onText gets the whole text so far after every chunk. Resolves with the full reply. */
-export async function chatStream(id: string, apiKey: string, model: string, messages: Message[], onText: (text: string) => void) {
+export type Message = { role: "user" | "assistant"; content: string; thinking?: string; stats?: string };
+export type Reply = { content: string; thinking: string; stats: string };
+
+/** Streams the reply; onReply gets the whole reply so far after every chunk. Resolves with the full reply and its stats. */
+export async function chatStream(id: string, apiKey: string, model: string, messages: Message[], think: boolean, onReply: (r: Reply) => void) {
+  const start = performance.now();
   const res = await http(`${podUrl(id)}/v1/chat/completions`, {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    // enable_thinking off: Qwen3 would otherwise stream its raw <think> notes; other models' templates ignore it
-    body: JSON.stringify({ model, messages, stream: true, max_tokens: 1024, temperature: 0.7, chat_template_kwargs: { enable_thinking: false } }),
+    body: JSON.stringify({
+      model,
+      messages: messages.map(({ role, content }) => ({ role, content })), // thinking and stats stay on this Mac
+      stream: true,
+      stream_options: { include_usage: true },
+      // thinking runs to thousands of tokens: no cap then, vLLM allows what's left of the context
+      ...(think ? {} : { max_tokens: 1024 }),
+      temperature: 0.7,
+      // models without a thinking mode ignore it; gpt-oss always reasons and sends it in a separate field
+      chat_template_kwargs: { enable_thinking: think },
+    }),
   });
   if (!res.ok || !res.body) throw new Error(`The model answered with error ${res.status}`);
   const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
   let raw = "";
+  let first = 0;
   for (let r = await reader.read(); !r.done; r = await reader.read()) {
     raw += r.value;
-    onText(sseText(raw.slice(0, raw.lastIndexOf("\n") + 1))); // only complete lines parse
+    // only complete lines parse; ponytail: a model with no thinking mode shows its answer as thinking until the end
+    const { content, thinking } = sseReply(raw.slice(0, raw.lastIndexOf("\n") + 1), think);
+    if (!first && (content || thinking)) first = performance.now();
+    onReply({ content, thinking, stats: "" });
   }
-  const text = sseText(raw);
-  onText(text);
-  return text;
+  const { content, thinking, usage } = sseReply(raw);
+  const end = performance.now();
+  const reply = { content, thinking, stats: usage ? replyStats(usage, (first || end) - start, first ? end - first : 0) : "" };
+  onReply(reply);
+  return reply;
 }
 
 // --- Hugging Face ------------------------------------------------------------

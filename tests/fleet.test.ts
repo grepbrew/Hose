@@ -86,6 +86,28 @@ describe("backstop", () => {
   });
 });
 
+describe("pollUse", () => {
+  // other apps reach the pod through its API: their requests count as activity, as on the pod's watchdog
+  it.each([
+    ["keeps pod on", 4, []],
+    ["idle turns off", 3, ["delete pod1"]],
+  ])("%s", async (_, doneLater, expected) => {
+    load(old("pod1")); // idle 10 min
+    const f = fleet();
+    await f.refresh();
+    await f.refresh(); // ready on the second check
+    state.served = 3;
+    await f.pollUse();
+    state.served = doneLater;
+    f.s.lastActive.pod1 = Date.now() - 20 * 60000;
+
+    await f.pollUse();
+    await f.refresh();
+
+    expect(state.calls).toEqual(expected);
+  });
+});
+
 describe("removeStorage", () => {
   it("deletes the volume, keeps the config", async () => {
     seed("stored");

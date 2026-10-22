@@ -18,18 +18,19 @@ const state = computed(() => props.fleet.state(props.config));
 const scroll = () => nextTick(() => list.value?.$el.lastElementChild?.scrollIntoView({ block: "end" }));
 onMounted(scroll);
 // While the pod boots, its RunPod logs (image pull, then vLLM downloading and loading the model) fill the chat area.
+// Once it's on, Show log keeps them streaming under the chat (vLLM's requests and tokens/s).
 // ponytail: last 300 lines in memory, plenty to see progress
 const LOG_MAX = 300;
 const logs = ref<LogLine[]>([]);
 const logEl = ref<HTMLElement>();
 const hms = (ts: string) => new Date(ts).toLocaleTimeString([], { hour12: false });
 watch(
-  () => (state.value === "Starting" ? props.config.podId : ""),
+  () => (state.value === "Starting" || (props.config.log && state.value !== "Off") ? props.config.podId : ""),
   (podId, _, onCleanup) => {
     logs.value = [];
     if (!podId) return;
     const ctl = new AbortController();
-    onCleanup(() => ctl.abort()); // ready, another pod, or page left
+    onCleanup(() => ctl.abort()); // ready (log hidden), another pod, or page left
     let since = "";
     const add = (l: LogLine) => {
       const el = logEl.value;
@@ -71,8 +72,8 @@ async function send() {
   const reply = msgs[msgs.length - 1];
   scroll();
   try {
-    await chatStream(podId, props.vllmKey, props.config.id, history, (t) => {
-      reply.content = t;
+    await chatStream(podId, props.vllmKey, props.config.id, history, !!props.config.think, (r) => {
+      Object.assign(reply, r);
       scroll();
     });
   } catch (e) {
@@ -81,7 +82,7 @@ async function send() {
     busy.value = false;
     props.fleet.s.answering = "";
     props.fleet.touch(podId);
-    if (!reply.content) msgs.pop();
+    if (!reply.content && !reply.thinking) msgs.pop();
   }
 }
 
@@ -106,13 +107,23 @@ const onEnter = (e: KeyboardEvent) => {
     </ol>
     <TransitionGroup v-else ref="list" tag="ol" name="msg" class="messages" aria-live="polite">
       <li v-if="!messages.length" key="hello" class="empty muted">Say hello to {{ label(config.id) }}.</li>
-      <li v-for="(m, i) in messages" :key="i" :class="m.role">{{ m.content || "…" }}</li>
+      <li v-for="(m, i) in messages" :key="i" :class="m.role">
+        <details v-if="m.thinking" class="think" :open="!m.content">
+          <summary>{{ m.content ? "Thought" : "Thinking…" }}</summary>
+          <span>{{ m.thinking }}</span>
+        </details>
+        <span v-if="m.content || !m.thinking">{{ m.content || "…" }}</span>
+        <small v-if="m.stats" class="stats">{{ m.stats }}</small>
+      </li>
     </TransitionGroup>
+    <ol v-if="config.log && state !== 'Starting' && state !== 'Off'" ref="logEl" class="log tail" role="log" aria-label="Server log" aria-live="off">
+      <li v-if="!logs.length" class="wait muted">Waiting for log lines…</li>
+      <li v-for="(l, i) in logs" :key="i" :class="l.source"><time :datetime="l.ts">{{ hms(l.ts) }}</time>{{ l.line }}</li>
+    </ol>
     <p v-if="state === 'Starting'" class="note muted">Still downloading and loading the model, 2–5 min. Chat opens up when it's on.</p>
     <p v-if="error" class="note error" role="alert">{{ error }}</p>
     <form class="composer" @submit.prevent="send">
-      <label class="grow">
-        <span class="sr">Message</span>
+      <div class="grow">
         <textarea
           v-model="draft"
           aria-label="Message"
@@ -121,8 +132,14 @@ const onEnter = (e: KeyboardEvent) => {
           rows="2"
           @keydown.enter.exact="onEnter"
         />
-        <span class="kbd muted">Enter sends · Shift+Enter adds a line</span>
-      </label>
+        <div class="opts">
+          <label class="opt"><input v-model="config.think" type="checkbox" />Think first</label>
+          <span class="kbd muted">Enter sends · Shift+Enter adds a line</span>
+          <button v-if="state !== 'Starting'" class="link" type="button" :aria-pressed="!!config.log" @click="config.log = !config.log">
+            {{ config.log ? "Hide log" : "Show log" }}
+          </button>
+        </div>
+      </div>
       <button class="btn primary" :disabled="busy || !draft.trim() || state !== 'On'">Send</button>
     </form>
   </section>
@@ -244,13 +261,6 @@ const onEnter = (e: KeyboardEvent) => {
   flex-direction: column;
   gap: 4px;
 }
-.sr {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-}
 textarea {
   font: inherit;
   font-size: 13px;
@@ -264,8 +274,59 @@ textarea {
 textarea:disabled {
   cursor: not-allowed;
 }
-.kbd {
+.opts {
+  display: flex;
+  align-items: center;
+  gap: 12px;
   font-size: 10.5px;
+}
+.opt {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.opt input {
+  margin: 0;
+}
+.link {
+  margin-left: auto;
+  font: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--accent);
+  cursor: pointer;
+}
+/* reasoning, folded once the answer starts */
+.think {
+  margin-bottom: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.think summary {
+  cursor: pointer;
+  user-select: none;
+}
+.think[open] > span {
+  display: block;
+  margin-top: 4px;
+  padding-left: 8px;
+  border-left: 2px solid var(--line);
+}
+.stats {
+  display: block;
+  margin-top: 6px;
+  font-size: 10.5px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+/* server log under the chat once it's on */
+.log.tail {
+  flex: 0 0 30%;
+  min-height: 120px;
+  margin-top: 0;
 }
 /* messages rise in */
 .msg-enter-active {

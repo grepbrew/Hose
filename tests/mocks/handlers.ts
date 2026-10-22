@@ -15,6 +15,8 @@ export const state = {
   volumes: [] as { id: string; name: string; size: number; dataCenter: string; type: string }[],
   full: false, // the volume's data center has no free GPU: a pod with a network mount gets 400
   silent: "", // a pod RunPod's host never started: its log stream has no lines (seed stuck)
+  lastChat: null as Record<string, any> | null, // last POST /v1/chat/completions body
+  served: 0, // vLLM's finished-request count in /metrics
 };
 
 // Fields a running GPU pod carries in GET /v2/pods (Pod schema in api.runpod.io/v2/openapi.json).
@@ -46,6 +48,8 @@ export function seed(name: string | null) {
   state.volumes = [];
   state.full = false;
   state.silent = "";
+  state.lastChat = null;
+  state.served = 0;
   if (name === "stored" || name === "storedOn") state.volumes.push({ id: "vol1", name: "hose-qwen3-8b", size: 25, dataCenter: "US-TX-3", type: "STANDARD" });
   if (name === "on" || name === "two" || name === "storedOn") {
     state.pods.push(pod("pod1", "hose-qwen3-8b", "NVIDIA RTX 4090", 0.89, 21));
@@ -122,8 +126,26 @@ const sse = (chunks: string[]) => {
 const SSE = [
   'data: {"choices":[{"index":0,"delta":{"role":"assistant","content":""}}]}\n\ndata: {"choices":[{"index":0,"delta":{"content":"Hello "}}]}\n\ndata: {"choi',
   'ces":[{"index":0,"delta":{"content":"from fake "}}]}\n\ndata: {"choices":[{"index":0,"delta":{"content":"GPU"}}]}\n\n',
-  'data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n',
+  'data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\n\n',
+  'data: {"choices":[],"usage":{"prompt_tokens":9,"total_tokens":12,"completion_tokens":3}}\n\ndata: [DONE]\n\n',
 ];
+
+// with enable_thinking, as a real Qwen3.5 pod sends it: the template opens <think> in the prompt, so the content is
+// the reasoning, then </think>, then the answer
+const SSE_THINK = [
+  'data: {"choices":[{"index":0,"delta":{"content":"The user says hi."}}]}\n\n',
+  'data: {"choices":[{"index":0,"delta":{"content":"\\n</think>\\n\\n"}}]}\n\n',
+  ...SSE,
+];
+
+// vLLM /metrics, only the lines Hose and the watchdog read
+const metrics = (done: number) =>
+  [
+    'vllm:num_requests_running{engine="0",model_name="Qwen/Qwen3-8B"} 0.0',
+    'vllm:num_requests_waiting{engine="0",model_name="Qwen/Qwen3-8B"} 0.0',
+    `vllm:request_success_total{engine="0",finished_reason="stop",model_name="Qwen/Qwen3-8B"} ${done}.0`,
+    'vllm:request_success_total{engine="0",finished_reason="length",model_name="Qwen/Qwen3-8B"} 0.0',
+  ].join("\n") + "\n";
 
 // GET /v2/pods/{id}/logs (openapi example shape): image pull, then vLLM with a colour code and a tqdm \r line; cut mid-line
 const LOGS = [
@@ -218,7 +240,11 @@ export const handlers = [
   http.get(`${REST}/pods/:id/logs`, ({ request, params }) =>
     denied(request) ? unauthorized() : sse(new URL(request.url).searchParams.has("since") || state.silent === params.id ? [] : LOGS),
   ),
-  http.post("https://*.proxy.runpod.net/v1/chat/completions", () => sse(SSE)),
+  http.post("https://*.proxy.runpod.net/v1/chat/completions", async ({ request }) => {
+    state.lastChat = (await request.json()) as Record<string, any>;
+    return sse(state.lastChat.chat_template_kwargs?.enable_thinking ? SSE_THINK : SSE);
+  }),
+  http.get("https://*.proxy.runpod.net/metrics", () => HttpResponse.text(metrics(state.served))),
   http.get("https://huggingface.co/api/whoami-v2", () => HttpResponse.json({ name: "tester" })),
   http.get("https://huggingface.co/api/models", ({ request }) => {
     const q = (new URL(request.url).searchParams.get("search") ?? "").toLowerCase();
