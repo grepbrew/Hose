@@ -1,0 +1,128 @@
+:root {
+  --paper: #f2f4f1;
+  --surface: #ffffff;
+  --ink: #1b2320;
+  --muted: #66716c;
+  --line: #d9dfdb;
+  --hose: #1f5c4a;
+  --hose-soft: #dcebe5;
+  --brass: #b0802a;
+  --danger: #a23b2c;
+  --radius-panel: 14px;
+  --radius-control: 8px;
+  --round: ui-rounded, "SF Pro Rounded", system-ui, sans-serif;
+  font: 15px/1.5 system-ui, -apple-system, sans-serif;
+  color: var(--ink);
+  background: var(--paper);
+  -webkit-font-smoothing: antialiased;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #111614;
+    --surface: #1a201e;
+    --ink: #e4ebe7;
+    --muted: #94a19b;
+    --line: #2c3532;
+    --hose: #5bb394;
+    --hose-soft: #1d3a31;
+    --brass: #d4a54a;
+    --danger: #e0806f;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  background: var(--paper);
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--round);
+  font-weight: 650;
+  line-height: 1.2;
+  margin: 0;
+}
+h1 {
+  font-size: 1.6rem;
+}
+h2 {
+  font-size: 1.15rem;
+}
+p {
+  margin: 0;
+}
+.muted {
+  color: var(--muted);
+}
+.error {
+  color: var(--danger);
+}
+
+button {
+  font: inherit;
+  font-weight: 600;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  padding: 0.45rem 0.9rem;
+  background: var(--surface);
+  color: var(--ink);
+  cursor: pointer;
+}
+button.primary {
+  background: var(--hose);
+  border-color: var(--hose);
+  color: var(--surface);
+}
+button.quiet {
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
+}
+button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+:focus-visible {
+  outline: 2px solid var(--brass);
+  outline-offset: 2px;
+}
+
+.field {
+  display: grid;
+  gap: 0.3rem;
+}
+label {
+  font-weight: 600;
+}
+.field small {
+  color: var(--muted);
+}
+input,
+textarea {
+  font: inherit;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  padding: 0.55rem 0.7rem;
+  width: 100%;
+}
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+}
+
+main {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 1.5rem 1rem 3rem;
+  display: grid;
+  gap: 1.75rem;
+}
