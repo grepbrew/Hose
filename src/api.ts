@@ -2,7 +2,7 @@
 // management API blocks browser CORS); in vite dev / tests plain fetch is used and msw answers.
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import { isTauri } from "@tauri-apps/api/core";
-import { sseData, sseText, logText, CHAT_TAGS, type Cloud, type Gpu, type HfInfo, type Pod } from "./cost";
+import { sseData, sseText, logText, placeName, CHAT_TAGS, type Cloud, type DataCenter, type Gpu, type HfInfo, type Pod } from "./cost";
 
 const REST = "https://api.runpod.io/v2";
 const GQL = "https://api.runpod.io/graphql";
@@ -79,16 +79,17 @@ export async function podLogs(key: string, id: string, since: string, onLine: (l
 }
 
 // ponytail: the whole data-center list once per app run (~40 rows); unknown ids show as the id
-let dataCenters: Promise<Record<string, string>> | null = null;
-export async function getDatacenterName(key: string, id: string): Promise<string> {
-  dataCenters ??= runpod<{ dataCenters: { id: string; name: string }[] }>(`${REST}/catalog/datacenters`, key)
-    .then((r) => Object.fromEntries(r.dataCenters.map((d) => [d.id, d.name])))
+let dataCenters: Promise<DataCenter[]> | null = null;
+export function getDataCenters(key: string): Promise<DataCenter[]> {
+  dataCenters ??= runpod<{ dataCenters: DataCenter[] }>(`${REST}/catalog/datacenters`, key)
+    .then((r) => r.dataCenters)
     .catch((e) => {
       dataCenters = null; // try again next time
       throw e;
     });
-  return (await dataCenters)[id] ?? id;
+  return dataCenters;
 }
+export const getDatacenterName = async (key: string, id: string) => placeName(id, await getDataCenters(key));
 
 // --- chat (vLLM on the pod, through RunPod's public proxy, guarded by vLLM's --api-key) ---------------
 

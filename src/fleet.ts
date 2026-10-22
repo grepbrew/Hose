@@ -1,8 +1,8 @@
 // The user's pod configs (remembered on this Mac) and their Pods on RunPod, polled while the app is open.
 // Shared by the Sidebar, New pod and pod pages.
 import { reactive, computed, watch, onUnmounted } from "vue";
-import { listHosePods, createPod, deletePod, podReady, getBalance, getDatacenterName, type Message, type Pod } from "./api";
-import { burnRatePerHr, podInput, migrateConfigs, upsertConfig, snapshotOf, endRun, sidebarGroups, type Config } from "./cost";
+import { listHosePods, createPod, deletePod, podReady, getBalance, getDatacenterName, getDataCenters, type Message, type Pod } from "./api";
+import { burnRatePerHr, podInput, dcIds, migrateConfigs, upsertConfig, snapshotOf, endRun, sidebarGroups, type Config } from "./cost";
 import WATCHDOG from "./watchdog.py?raw";
 
 export type { Config };
@@ -94,7 +94,8 @@ export function useFleet(key: () => string, vllmKey: () => string, hfToken: () =
   const pollMoney = guard(async () => void (s.balance = await getBalance(key())));
 
   async function turnOn(c: Config) {
-    const pod = await createPod(key(), podInput(c, c.gpuId, c.cloud, hfToken(), vllmKey(), c.idleMin, WATCHDOG));
+    const ids = c.location ? dcIds(c.location, await getDataCenters(key())) : [];
+    const pod = await createPod(key(), podInput(c, c.gpuId, c.cloud, hfToken(), vllmKey(), c.idleMin, WATCHDOG, c.disk, ids));
     c.podId = pod.id;
     s.pods.push(pod);
   }

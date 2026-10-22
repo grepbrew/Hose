@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from "vitest";
 import { effectScope } from "vue";
 import { setupServer } from "msw/node";
-import { handlers, seed } from "./mocks/handlers";
+import { handlers, seed, state } from "./mocks/handlers";
 
 // Boundary double: the webview's localStorage, backed by a Map.
 const store = new Map<string, string>();
@@ -52,5 +52,16 @@ describe("refresh", () => {
     expect(c.pastPodIds).toEqual(["pod1"]);
     expect(c.spentPast).toBeCloseTo(run, 5);
     expect(c.last).toMatchObject({ dataCenter: "US Texas 3", runSpend: 0 });
+  });
+});
+
+describe("turnOn", () => {
+  it("disk and region", async () => {
+    const f = fleet();
+    const c = { ...old(""), podId: undefined, key: "k", name: "n", pastPodIds: [], spentPast: 0, cloud: "SECURE" as const, location: "EUROPE", disk: 150 };
+
+    await f.turnOn(c);
+
+    expect(state.lastCreate).toMatchObject({ disk: 150, dataCenterIds: ["EU-RO-1"] });
   });
 });

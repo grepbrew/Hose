@@ -65,9 +65,11 @@ const forget = () => run(() => f.forget(props.config!), "delete it");
 // Change GPU (Off only): the picker takes over the chat column
 const picking = ref(false);
 const pickCloud = ref<Cloud>("SECURE");
+const pickLocation = ref("");
 const pick = ref<GpuCard | null>(null);
 function changeGpu() {
   pickCloud.value = props.config!.cloud;
+  pickLocation.value = props.config!.location ?? "";
   pick.value = null;
   picking.value = true;
 }
@@ -75,7 +77,7 @@ function useGpu() {
   const c = props.config!;
   const g = pick.value!;
   if (c.name === `${label(c.id)} · ${c.gpuName}`) c.name = `${label(c.id)} · ${g.name}`; // auto names follow the GPU
-  Object.assign(c, { gpuId: g.id, gpuName: g.name, cloud: pickCloud.value, price: g.price, vram: g.memory });
+  Object.assign(c, { gpuId: g.id, gpuName: g.name, cloud: pickCloud.value, location: pickLocation.value || undefined, price: g.price, vram: g.memory });
   picking.value = false;
 }
 
@@ -110,7 +112,7 @@ const NOTE: Record<string, string> = { Starting: "· loading the model, 2–5 mi
     <div class="body">
       <section v-if="config && picking" class="picker">
         <div class="panel">
-          <GpuPicker v-model:cloud="pickCloud" :api-key="apiKey" :model="config" :picked="pick?.id" @pick="pick = $event">
+          <GpuPicker v-model:cloud="pickCloud" v-model:location="pickLocation" :api-key="apiKey" :model="config" :picked="pick?.id" @pick="pick = $event">
             <h2>Change GPU</h2>
           </GpuPicker>
           <div class="actions">

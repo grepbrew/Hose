@@ -6,6 +6,10 @@ import {
   parseHfModel,
   gpuCards,
   podInput,
+  diskGb,
+  fitDisk,
+  dcIds,
+  placeName,
   burnRatePerHr,
   sseText,
   logText,
@@ -19,6 +23,7 @@ import {
   PRESETS,
   VLLM_IMAGE,
   type Config,
+  type DataCenter,
   type Gpu,
   type Sel,
 } from "../src/cost";
@@ -96,6 +101,67 @@ describe("gpuCards", () => {
       ["RTX 4090", 0.89, true, ""],
     ]);
   });
+
+  it("by location", () => {
+    const at = (g: Gpu, dataCenters: [string, string][]) => ({ ...g, dataCenters: dataCenters.map(([id, availability]) => ({ id, availability })) });
+    const catalog = [
+      at(gpu("RTX 4090", 24, 0.89, 0.59), [["US-TX-3", "HIGH"], ["EU-RO-1", "LOW"]]),
+      at(gpu("A40", 48, 0.59, null), [["EU-RO-1", "MEDIUM"]]),
+      at(gpu("RTX A4000", 16, 0.25, 0.17), [["US-TX-3", "HIGH"]]),
+    ];
+
+    expect(gpuCards(catalog, "SECURE", 21.2, ["EU-RO-1"]).map((c) => [c.name, c.stock])).toEqual([
+      ["A40", "MEDIUM"],
+      ["RTX 4090", "LOW"],
+    ]);
+    // a region: the best stock among its data centers
+    expect(gpuCards(catalog, "SECURE", 21.2, ["US-TX-3", "EU-RO-1"]).find((c) => c.name === "RTX 4090")!.stock).toBe("HIGH");
+  });
+});
+
+// Shape of GET /v2/catalog/datacenters items (api.runpod.io/v2/openapi.json)
+const DCS: DataCenter[] = [
+  { id: "US-TX-3", name: "US Texas 3", region: "NORTH_AMERICA" },
+  { id: "EU-RO-1", name: "EU Romania 1", region: "EUROPE" },
+  { id: "EU-CZ-1", name: "EU Czech 1", region: "EUROPE" },
+  { id: "EUR-IS-2", name: "EUR-IS-2", region: "EUROPE" }, // live: name is just the id
+  { id: "CA-MTL-1", name: "CA-MTL-1", region: "NORTH_AMERICA" },
+];
+
+describe("dcIds", () => {
+  it.each([
+    ["", []],
+    ["EUROPE", ["EU-RO-1", "EU-CZ-1", "EUR-IS-2"]],
+    ["US-TX-3", ["US-TX-3"]],
+  ])("%s", (location, ids) => expect(dcIds(location, DCS)).toEqual(ids));
+});
+
+describe("placeName", () => {
+  it.each([
+    ["EUROPE", "Europe"],
+    ["NORTH_AMERICA", "North America"],
+    ["EU-RO-1", "EU Romania 1"],
+    ["EUR-IS-2", "Iceland (EUR-IS-2)"],
+    ["CA-MTL-1", "Canada (CA-MTL-1)"],
+    ["US-KS-2", "United States (US-KS-2)"],
+    ["XX-1", "XX-1"],
+  ])("%s", (location, name) => expect(placeName(location, DCS)).toBe(name));
+});
+
+describe("fitDisk", () => {
+  const q8 = { BF16: 8190735360 }; // 16.4 GB of files
+
+  it("recommendation rounds up to 5 GB", () => {
+    expect(diskGb({ BF16: 9653100528, F32: 3840 })).toBe(50); // 19.3 × 1.5 + 20 = 49 → 50
+    expect(diskGb(q8)).toBe(45);
+  });
+
+  it.each([
+    [52, 55],
+    [30, 45],
+    [120, 120],
+    [NaN, 45],
+  ])("%s", (gb, want) => expect(fitDisk(gb, q8)).toBe(want));
 });
 
 describe("podInput", () => {
@@ -123,6 +189,15 @@ describe("podInput", () => {
     const input = podInput(model, "NVIDIA GeForce RTX 4090", "SECURE", "", "k1", 10, "WD");
 
     expect(Object.keys(input.env)).not.toContain("HF_TOKEN");
+  });
+
+  it("disk and location", () => {
+    const input = podInput(model, "NVIDIA GeForce RTX 4090", "SECURE", "", "k1", 10, "WD", 150, ["EU-RO-1"]);
+    expect(input).toMatchObject({ disk: 150, dataCenterIds: ["EU-RO-1"] });
+
+    const plain = podInput(model, "NVIDIA GeForce RTX 4090", "SECURE", "", "k1", 10, "WD");
+    expect(plain.disk).toBe(diskGb(model.params));
+    expect(Object.keys(plain)).not.toContain("dataCenterIds");
   });
 });
 

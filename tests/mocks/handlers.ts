@@ -10,6 +10,7 @@ export const state = {
   checks: {} as Record<string, number>, // readiness checks seen per pod; a new pod turns ready on the second
   n: 0,
   booting: "", // a pod that never turns ready (seed starting)
+  lastCreate: null as Record<string, unknown> | null, // last POST /v2/pods body
 };
 
 // Fields a running GPU pod carries in GET /v2/pods (Pod schema in api.runpod.io/v2/openapi.json).
@@ -36,6 +37,7 @@ export function seed(name: string | null) {
   state.pods = [];
   state.checks = {};
   state.booting = "";
+  state.lastCreate = null;
   if (name === "on" || name === "two") {
     state.pods.push(pod("pod1", "hose-qwen3-8b", "NVIDIA RTX 4090", 0.89, 21));
     state.checks.pod1 = 1;
@@ -66,7 +68,7 @@ const HF_MODELS = [
   hfModel("black-forest-labs/FLUX.1-schnell", "text-to-image", 700000, 11.9e9),
 ];
 
-const gpu = (name: string, memory: number, secure: number | null, community: number | null, availability = "HIGH") => ({
+const gpu = (name: string, memory: number, secure: number | null, community: number | null, availability = "HIGH", dataCenters: [string, string][] = []) => ({
   id: `NVIDIA ${name}`,
   name,
   pool: null,
@@ -77,13 +79,15 @@ const gpu = (name: string, memory: number, secure: number | null, community: num
   price: { secure, community, serverless: null },
   maxCount: { secure: 8, community: 8 },
   availability,
+  // per data center stock; live, only cloud=SECURE fills this (2026-10-22)
+  ...(dataCenters.length ? { dataCenters: dataCenters.map(([id, availability]) => ({ id, name: id, availability })) } : {}),
 });
 export const GPUS = [
-  gpu("RTX A4000", 16, 0.25, 0.17),
+  gpu("RTX A4000", 16, 0.25, 0.17, "HIGH", [["US-TX-3", "HIGH"]]),
   gpu("RTX A5000", 24, 0.27, 0.16, "NONE"),
-  gpu("RTX 4090", 24, 0.89, 0.59),
-  gpu("A40", 48, 0.59, null),
-  gpu("A100 PCIe", 80, 1.79, 1.19, "LOW"),
+  gpu("RTX 4090", 24, 0.89, 0.59, "HIGH", [["US-TX-3", "HIGH"], ["EU-RO-1", "LOW"]]),
+  gpu("A40", 48, 0.59, null, "HIGH", [["EU-RO-1", "MEDIUM"]]),
+  gpu("A100 PCIe", 80, 1.79, 1.19, "LOW", [["EU-RO-1", "LOW"]]),
 ];
 
 const denied = (request: Request) => request.headers.get("Authorization") !== "Bearer good-key";
@@ -122,7 +126,14 @@ export const handlers = [
     if (query.includes("myself")) return HttpResponse.json({ data: { myself: { clientBalance: 25 } } });
     return HttpResponse.json({ errors: [{ message: "unknown query" }] });
   }),
-  http.get(`${REST}/catalog/gpus`, ({ request }) => (denied(request) ? unauthorized() : HttpResponse.json({ gpus: GPUS }))),
+  // live API: only cloud=SECURE carries per data center stock
+  http.get(`${REST}/catalog/gpus`, ({ request }) =>
+    denied(request)
+      ? unauthorized()
+      : HttpResponse.json({
+          gpus: new URL(request.url).searchParams.get("cloud") === "COMMUNITY" ? GPUS.map(({ dataCenters, ...g }) => g) : GPUS,
+        }),
+  ),
   http.get(`${REST}/catalog/datacenters`, ({ request }) =>
     denied(request)
       ? unauthorized()
@@ -143,7 +154,8 @@ export const handlers = [
   ),
   http.post(`${REST}/pods`, async ({ request }) => {
     if (denied(request)) return unauthorized();
-    const { name } = (await request.json()) as { name: string };
+    state.lastCreate = (await request.json()) as Record<string, unknown>;
+    const name = state.lastCreate.name as string;
     const created = pod(`pod${++state.n + 1}`, name, "NVIDIA RTX 4090", 0.89);
     state.pods.push(created);
     return HttpResponse.json(created, { status: 201 });

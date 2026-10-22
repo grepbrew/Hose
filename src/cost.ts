@@ -11,7 +11,39 @@ export type Gpu = {
   community: boolean;
   price: { secure: number | null; community: number | null };
   availability?: string;
+  dataCenters?: { id: string; availability: string }[]; // Secure cloud only: Community reports no locations
 };
+
+/** One item of GET /v2/catalog/datacenters. */
+export type DataCenter = { id: string; name: string; region: string };
+
+/** Data center ids a location covers: "" = anywhere, a region (EUROPE) = its data centers, else one data center. */
+export const dcIds = (location: string, dcs: DataCenter[]) =>
+  !location ? [] : dcs.some((d) => d.region === location) ? dcs.filter((d) => d.region === location).map((d) => d.id) : [location];
+
+const countries = new Intl.DisplayNames(["en"], { type: "region" });
+// RunPod's data center names are just the ids (2026-10-22), so name the country: US-TX-3, CA-MTL-1, EU-RO-1, EUR-IS-2, AP-JP-1
+function countryOf(id: string) {
+  const [a, b] = id.split("-");
+  try {
+    return countries.of(a === "US" || a === "CA" ? a : b);
+  } catch {
+    return undefined; // not a country code
+  }
+}
+
+/** EUROPE → Europe, NORTH_AMERICA → North America, EU-RO-1 → Romania (EU-RO-1), or RunPod's name if it has a real one. */
+export function placeName(location: string, dcs: DataCenter[]) {
+  if (dcs.some((d) => d.region === location))
+    return location
+      .split("_")
+      .map((w) => w[0] + w.slice(1).toLowerCase())
+      .join(" ");
+  const name = dcs.find((d) => d.id === location)?.name;
+  if (name && name !== location) return name;
+  const country = countryOf(location);
+  return country ? `${country} (${location})` : location;
+}
 
 export type Model = { id: string; params: Record<string, number> };
 
@@ -46,13 +78,19 @@ export const vramNeededGb = (params: Record<string, number>) => weightsGb(params
 
 export type GpuCard = { id: string; name: string; memory: number; price: number; stock: string; fits: boolean; reason: string };
 
-/** Cards for the GPU picker: every GPU offered on this cloud, cheapest first, marked whether it can run the model. */
-export function gpuCards(catalog: Gpu[], cloud: Cloud, needGb: number): GpuCard[] {
+const STOCK_RANK = ["NONE", "LOW", "MEDIUM", "HIGH"];
+
+/**
+ * Cards for the GPU picker: every GPU offered on this cloud, cheapest first, marked whether it can run the model.
+ * With data center ids, only GPUs offered there, with the best stock among them.
+ */
+export function gpuCards(catalog: Gpu[], cloud: Cloud, needGb: number, ids: string[] = []): GpuCard[] {
   const key = cloud === "SECURE" ? "secure" : "community";
   return catalog
-    .filter((g) => g[key] && g.price[key])
+    .filter((g) => g[key] && g.price[key] && (!ids.length || g.dataCenters?.some((d) => ids.includes(d.id))))
     .map((g) => {
-      const stock = g.availability ?? "NONE";
+      const here = g.dataCenters?.filter((d) => ids.includes(d.id)).map((d) => d.availability) ?? [];
+      const stock = ids.length ? here.reduce((a, b) => (STOCK_RANK.indexOf(b) > STOCK_RANK.indexOf(a) ? b : a)) : (g.availability ?? "NONE");
       const reason = g.memory < needGb ? "Too small" : stock === "NONE" ? "Sold out" : "";
       return { id: g.id, name: g.name, memory: g.memory, price: g.price[key]!, stock, fits: !reason, reason };
     })
@@ -79,8 +117,11 @@ export function parseHfModel(info: HfInfo, hasToken: boolean): { ok: true; model
 // CUDA 13.0 build. The -cu129 tag crash-loops: its torchcodec wants libnvrtc.so.13 (spike 2026-10-22).
 export const VLLM_IMAGE = "vllm/vllm-openai:v0.32.0";
 
-/** Container disk for a model: weights plus room for the HF download cache and vLLM. */
-export const diskGb = (params: Record<string, number>) => Math.ceil(weightsGb(params) * 1.5) + 20;
+/** Recommended container disk: the model files, half again for the download, 20 GB for vLLM; rounded up to 5 GB. */
+export const diskGb = (params: Record<string, number>) => Math.ceil((weightsGb(params) * 1.5 + 20) / 5) * 5;
+
+/** A storage size someone typed: rounded up to 5 GB, never below the recommendation. */
+export const fitDisk = (gb: number, params: Record<string, number>) => Math.max(diskGb(params), Math.ceil(gb / 5) * 5 || 0);
 
 const slug = (id: string) => id.split("/").pop()!.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40);
 
@@ -88,13 +129,24 @@ const slug = (id: string) => id.split("/").pop()!.toLowerCase().replace(/[^a-z0-
  * POST /v2/pods body. The watchdog script rides along in env and starts next to vLLM; it deletes the Pod
  * after idleMin quiet minutes, so a forgotten model stops billing even with Hose closed.
  */
-export function podInput(model: Model, gpuId: string, cloud: Cloud, hfToken: string, apiKey: string, idleMin: number, watchdog: string) {
+export function podInput(
+  model: Model,
+  gpuId: string,
+  cloud: Cloud,
+  hfToken: string,
+  apiKey: string,
+  idleMin: number,
+  watchdog: string,
+  disk = diskGb(model.params),
+  dataCenterIds: string[] = [],
+) {
   return {
     name: `hose-${slug(model.id)}`,
     image: VLLM_IMAGE,
     gpu: { id: gpuId, count: 1, minCudaVersion: "13.0" },
     cloud,
-    disk: diskGb(model.params),
+    ...(dataCenterIds.length ? { dataCenterIds } : {}),
+    disk,
     ports: ["8000/http"],
     env: {
       MODEL: model.id,
@@ -166,6 +218,8 @@ export type Config = Model & {
   idleMin: number;
   price?: number; // $/hr when it was picked, for "Costs when on"
   vram?: number; // GPU memory in GB, from the catalog when it was picked
+  disk?: number; // container disk in GB; unset = diskGb(params)
+  location?: string; // "" or unset = anywhere; a region (EUROPE) or a data center id (EU-RO-1)
   podId?: string;
   pastPodIds: string[];
   spentPast: number; // ≈ $ of finished runs

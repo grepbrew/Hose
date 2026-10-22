@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watchEffect } from "vue";
-import { getGpus, getDatacenterName } from "../api";
-import { spendTotals, snapshotOf, diskGb, duration, ago, usd, VLLM_IMAGE, type Cloud, type Config, type Pod } from "../cost";
+import { getGpus, getDatacenterName, getDataCenters } from "../api";
+import { spendTotals, snapshotOf, diskGb, fitDisk, placeName, duration, ago, usd, VLLM_IMAGE, type Cloud, type Config, type Pod } from "../cost";
 import type { Fleet } from "../fleet";
 import Icon from "./Icon.vue";
 
@@ -27,6 +27,13 @@ watchEffect(async () => {
 });
 const machine = computed(() => (props.stray ? snapshotOf(props.stray, strayDc.value, f.s.now) : props.config?.last));
 
+// The location picked for new pods: Europe, EU Romania 1, or nothing for anywhere
+const where = ref("");
+watchEffect(async () => {
+  const loc = props.config?.location;
+  where.value = loc ? placeName(loc, await getDataCenters(props.apiKey).catch(() => [])) : "";
+});
+
 const editing = ref(false);
 const editError = ref("");
 async function setCloud(c: Cloud) {
@@ -39,9 +46,17 @@ async function setCloud(c: Cloud) {
     if (!price) return void (editError.value = `${cfg.gpuName} isn't offered on ${cloudName(c)} cloud. Change the GPU instead.`);
     cfg.cloud = c;
     cfg.price = price;
+    if (c === "COMMUNITY") cfg.location = undefined; // Community hosts don't report a location
   } catch (e) {
     editError.value = e instanceof Error ? e.message : String(e);
   }
+}
+// Only raising it is allowed: below the recommendation the model may not fit.
+function setDisk(e: Event) {
+  const el = e.target as HTMLInputElement;
+  const cfg = props.config!;
+  cfg.disk = fitDisk(Number(el.value), cfg.params);
+  el.value = String(cfg.disk);
 }
 const confirming = ref(false);
 </script>
@@ -118,17 +133,21 @@ const confirming = ref(false);
               <option v-for="n in IDLE_CHOICES" :key="n" :value="n">{{ n }} quiet min</option>
             </select>
           </div>
+          <div class="f">
+            <label class="l" for="disk-edit">Storage (GB)</label>
+            <input id="disk-edit" type="number" class="inputish" :min="diskGb(config.params)" step="5" :value="config.disk ?? diskGb(config.params)" @change="setDisk" />
+          </div>
           <p v-if="editError" class="error small" role="alert">{{ editError }}</p>
         </div>
         <template v-else>
           <div class="li">
-            <Icon name="graphics-card" /><span>{{ config.gpuName }}{{ config.vram ? ` · ${config.vram} GB` : "" }}<small>{{ cloudName(config.cloud) }} cloud</small></span>
+            <Icon name="graphics-card" /><span>{{ config.gpuName }}{{ config.vram ? ` · ${config.vram} GB` : "" }}<small>{{ cloudName(config.cloud) }} cloud{{ where ? ` · ${where}` : "" }}</small></span>
           </div>
           <div class="li">
             <Icon name="timer" /><span>Turns off after {{ config.idleMin }} quiet min<small v-if="f.state(config) === 'On'">{{ f.offInMin(config) }} min left</small></span>
           </div>
           <div class="li">
-            <Icon name="package" /><span class="wrap">{{ config.id }}<small>{{ VLLM }} · {{ diskGb(config.params) }} GB disk</small></span>
+            <Icon name="package" /><span class="wrap">{{ config.id }}<small>{{ VLLM }} · {{ config.disk ?? diskGb(config.params) }} GB disk</small></span>
           </div>
         </template>
       </section>

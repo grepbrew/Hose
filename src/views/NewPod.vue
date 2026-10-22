@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from "vue";
 import { hfSearch, hfModelInfo, hfCanDownload, type HfHit } from "../api";
-import { PRESETS, parseHfModel, label, billions, vramNeededGb, type Cloud, type Config, type GpuCard, type Model, type Preset } from "../cost";
+import { PRESETS, parseHfModel, label, billions, vramNeededGb, diskGb, fitDisk, weightsGb, type Cloud, type Config, type GpuCard, type Model, type Preset } from "../cost";
 import type { Fleet } from "../fleet";
 import GpuPicker from "./GpuPicker.vue";
 import Icon from "./Icon.vue";
@@ -32,6 +32,7 @@ async function choose(m: Model, gated: unknown) {
     return void (error.value = `Accept the licence on huggingface.co/${m.id} with your Hugging Face account, then pick it again.`);
   model.value = { id: m.id, params: m.params };
   name.value = null;
+  disk.value = null;
 }
 
 const query = ref("");
@@ -74,12 +75,22 @@ async function check() {
 
 // ② GPU
 const cloud = ref<Cloud>("SECURE");
+const location = ref("");
 const gpu = ref<GpuCard | null>(null);
 
-// ③ Name & idle
+// ③ Name, storage & idle
 const name = ref<string | null>(null); // null = follow the model and GPU
 const autoName = computed(() => `${label(model.value.id)} · ${gpu.value?.name ?? ""}`);
 const idleMin = ref(10);
+const recDisk = computed(() => diskGb(model.value.params));
+const disk = ref<number | null>(null); // null = follow the model's recommended size
+// Only raising it is allowed: below the recommendation the model may not fit.
+function setDisk(e: Event) {
+  const el = e.target as HTMLInputElement;
+  const gb = fitDisk(Number(el.value), model.value.params);
+  disk.value = gb > recDisk.value ? gb : null;
+  el.value = String(gb);
+}
 
 const busy = ref("");
 function build(): Config {
@@ -92,6 +103,8 @@ function build(): Config {
     gpuId: g.id,
     gpuName: g.name,
     cloud: cloud.value,
+    location: location.value || undefined,
+    disk: disk.value ?? recDisk.value,
     idleMin: idleMin.value,
     price: g.price,
     vram: g.memory,
@@ -169,7 +182,7 @@ async function save(turnOn: boolean) {
       </section>
 
       <section class="panel" aria-labelledby="s2">
-        <GpuPicker v-model:cloud="cloud" :api-key="apiKey" :model="model" :picked="gpu?.id" @pick="gpu = $event">
+        <GpuPicker v-model:cloud="cloud" v-model:location="location" :api-key="apiKey" :model="model" :picked="gpu?.id" @pick="gpu = $event">
           <span class="step">2</span>
           <h2 id="s2">GPU</h2>
         </GpuPicker>
@@ -178,13 +191,18 @@ async function save(turnOn: boolean) {
       <section class="panel" aria-labelledby="s3">
         <div class="head">
           <span class="step">3</span>
-          <h2 id="s3" class="fill">Name &amp; idle</h2>
+          <h2 id="s3" class="fill">Name, storage &amp; idle</h2>
         </div>
-        <div class="two">
+        <div class="three">
           <div class="fieldset">
             <label for="pod-name">Name</label>
             <input id="pod-name" class="field" :value="name ?? autoName" spellcheck="false" @input="name = ($event.target as HTMLInputElement).value" />
             <span class="small muted">Shown in the sidebar. You can rename it later.</span>
+          </div>
+          <div class="fieldset">
+            <label for="disk">Storage (GB)</label>
+            <input id="disk" type="number" class="field" :min="recDisk" step="5" :value="disk ?? recDisk" @change="setDisk" />
+            <span class="small muted">Recommended {{ recDisk }} GB: {{ Math.ceil(weightsGb(model.params)) }} GB of model files plus {{ recDisk - Math.ceil(weightsGb(model.params)) }} GB to download and run them.</span>
           </div>
           <div class="fieldset">
             <label for="idle">Turns off after</label>
@@ -412,9 +430,9 @@ h2.fill {
 .small {
   font-size: 11px;
 }
-.two {
+.three {
   display: grid;
-  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr);
   gap: 12px;
 }
 .foot {
