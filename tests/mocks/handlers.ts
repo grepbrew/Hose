@@ -42,7 +42,7 @@ export const handlers = [
     }
     return HttpResponse.json({ errors: [{ message: "unknown query" }] });
   }),
-  http.get(`${REST}/catalog/gpus`, ({ request }) => (denied(request) ? unauthorized() : HttpResponse.json(GPUS))),
+  http.get(`${REST}/catalog/gpus`, ({ request }) => (denied(request) ? unauthorized() : HttpResponse.json({ gpus: GPUS }))),
   http.get(`${REST}/serverless`, ({ request }) =>
     denied(request) ? unauthorized() : HttpResponse.json({ endpoints: [...state.endpoints, { id: "other", name: "someone-else" }] }),
   ),

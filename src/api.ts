@@ -39,7 +39,8 @@ export async function getBalance(key: string): Promise<number> {
   return myself.clientBalance;
 }
 
-export const getGpus = (key: string) => runpod<Gpu[]>(`${REST}/catalog/gpus?include=AVAILABILITY&product=SERVERLESS`, key);
+export const getGpus = (key: string) =>
+  runpod<{ gpus: Gpu[] }>(`${REST}/catalog/gpus?include=AVAILABILITY&product=SERVERLESS`, key).then((r) => r.gpus);
 
 // --- endpoints -------------------------------------------------------------
 

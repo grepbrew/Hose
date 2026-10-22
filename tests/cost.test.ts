@@ -55,6 +55,12 @@ describe("pickPools", () => {
   it("too big", () => {
     expect(() => pickPools(catalog, 150)).toThrow(/too big/);
   });
+
+  it("skips null pool", () => {
+    const pick = pickPools([{ ...gpu("AMPERE_24", 24, 0.1), pool: null }, ...catalog], 21.2);
+
+    expect(pick.pools).toEqual(["AMPERE_24", "AMPERE_48"]);
+  });
 });
 
 describe("parseHfModel", () => {

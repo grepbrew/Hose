@@ -12,7 +12,7 @@ const fit = (m: Model) => {
   try {
     const need = vramNeededGb(m.params);
     const pick = pickPools(props.fleet.s.gpus, need);
-    const gb = Math.min(...props.fleet.s.gpus.filter((g) => pick.pools.includes(g.pool)).map((g) => g.memory));
+    const gb = Math.min(...props.fleet.s.gpus.filter((g) => pick.pools.includes(g.pool ?? "")).map((g) => g.memory));
     return { ...pick, gb };
   } catch {
     return null;
@@ -62,6 +62,10 @@ async function check() {
     }
     if (info.gated && !(await hfCanDownload(id, props.hfToken))) {
       checkError.value = `Accept the licence on huggingface.co/${id} with your Hugging Face account, then check again.`;
+      return;
+    }
+    if (!props.fleet.s.gpus.length) {
+      checkError.value = "Couldn't load GPU prices from RunPod yet. Try again in a moment.";
       return;
     }
     if (!fit(r.model)) {

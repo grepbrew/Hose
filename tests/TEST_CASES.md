@@ -34,6 +34,8 @@ Seeds (`/?seed=`): `fresh` clears stored keys; any other seed stores the fake ke
 | TC-022 | Preset GPU tiers | unit | test catalog | pickPools(catalog, vramNeededGb(preset)) per preset | Fast AMPERE_16, Balanced AMPERE_24, Smarter AMPERE_48 | tests/cost.test.ts > PRESETS > %s fits %s | pass |
 | TC-023 | Packed 4-bit weights sizing | unit | — | vramNeededGb({BF16: 1e9, U8: 10e9}) | (2 + 10)×1.2 + 2 = 16.4 GB (U8 = 1 byte, safe side) | tests/cost.test.ts > vramNeededGb > u8 packed weights count 1 byte | pass |
 | TC-024 | GPU state label | unit | worker lists | gpuState(workers) | [] / throttled → Asleep, initializing → Waking up, idle → Ready, running → Answering | tests/cost.test.ts > gpuState > %j -> %s | pass |
+| TC-025 | GPU catalog unwrap | api | msw catalog → `{gpus: [5 GPUs]}` (OpenAPI shape) | getGpus("good-key") | array of 5 | tests/api.test.ts > getGpus > unwraps gpus | pass |
+| TC-026 | GPU pick skips non-serverless | unit | cheap 24 GB GPU with pool null | pickPools(catalog, 21.2) | ["AMPERE_24", "AMPERE_48"], no null | tests/cost.test.ts > pickPools > skips null pool | pass |
 
 ## Rules
 

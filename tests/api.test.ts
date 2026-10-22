@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { setupServer } from "msw/node";
 import { handlers, seed } from "./mocks/handlers";
-import { getBalance, listHoseEndpoints, endpointCostToday } from "../src/api";
+import { getBalance, getGpus, listHoseEndpoints, endpointCostToday } from "../src/api";
 
 const server = setupServer(...handlers);
 beforeAll(() => server.listen({ onUnhandledFrame: "error" }));
@@ -17,6 +17,14 @@ describe("getBalance", () => {
 
   it("401", async () => {
     await expect(getBalance("bad")).rejects.toThrow("RunPod rejected this key");
+  });
+});
+
+describe("getGpus", () => {
+  it("unwraps gpus", async () => {
+    const gpus = await getGpus("good-key");
+
+    expect(gpus).toHaveLength(5);
   });
 });
 

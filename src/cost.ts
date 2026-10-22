@@ -2,7 +2,7 @@
 
 export type Gpu = {
   id: string;
-  pool: string;
+  pool: string | null; // null when the GPU is not in a serverless pool
   memory: number;
   price: { serverless: number };
   availability?: string;
@@ -32,7 +32,7 @@ export const vramNeededGb = (params: Record<string, number>) => weightsGb(params
 export function pickPools(catalog: Gpu[], needGb: number) {
   const pools = new Map<string, { memory: number; price: number }>();
   for (const g of catalog) {
-    if (g.memory < needGb || g.availability === "NONE" || !g.price.serverless) continue;
+    if (!g.pool || g.memory < needGb || g.availability === "NONE" || !g.price.serverless) continue;
     const p = pools.get(g.pool);
     // a pool mixes GPU types; quote the dearest so the shown price is a ceiling
     pools.set(g.pool, { memory: g.memory, price: Math.max(p?.price ?? 0, g.price.serverless) });
