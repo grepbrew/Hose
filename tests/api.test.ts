@@ -1,12 +1,12 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { setupServer } from "msw/node";
 import { handlers, seed } from "./mocks/handlers";
-import { getBalance, getGpus, listHoseEndpoints, endpointCostToday } from "../src/api";
+import { getBalance, listHosePods, podReady, chatStream } from "../src/api";
 
 const server = setupServer(...handlers);
 beforeAll(() => server.listen({ onUnhandledFrame: "error" }));
 afterAll(() => server.close());
-beforeEach(() => seed("one"));
+beforeEach(() => seed("on"));
 
 describe("getBalance", () => {
   it("ok", async () => {
@@ -20,26 +20,30 @@ describe("getBalance", () => {
   });
 });
 
-describe("getGpus", () => {
-  it("unwraps gpus", async () => {
-    const gpus = await getGpus("good-key");
-
-    expect(gpus).toHaveLength(5);
-  });
-});
-
-describe("listHoseEndpoints", () => {
+describe("listHosePods", () => {
   it("filters", async () => {
-    const eps = await listHoseEndpoints("good-key");
+    const pods = await listHosePods("good-key");
 
-    expect(eps.map((e) => e.name)).toEqual(["hose-qwen3-8b"]);
+    expect(pods.map((p) => p.name)).toEqual(["hose-qwen3-8b"]);
   });
 });
 
-describe("endpointCostToday", () => {
-  it("ok", async () => {
-    const cost = await endpointCostToday("good-key", "ep1");
+describe("podReady", () => {
+  it.each([
+    ["pod1", true],
+    ["booting", false],
+  ])("%s -> %s", async (id, ready) => {
+    expect(await podReady(id, "k1")).toBe(ready);
+  });
+});
 
-    expect(cost).toBe(0.12);
+describe("chatStream", () => {
+  it("collects", async () => {
+    let shown = "";
+
+    const text = await chatStream("pod1", "k1", "Qwen/Qwen3-8B", [{ role: "user", content: "hi" }], (t) => (shown = t));
+
+    expect(text).toBe("Hello from fake GPU");
+    expect(shown).toBe("Hello from fake GPU");
   });
 });

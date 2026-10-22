@@ -1,73 +1,75 @@
 <script setup lang="ts">
-import { ref, computed, nextTick, onUnmounted } from "vue";
-import { startChat, pollStream, type Endpoint, type Message } from "../api";
-import { gpuState, streamText } from "../cost";
-import type { Fleet } from "../fleet";
+import { ref, computed, nextTick } from "vue";
+import { chatStream, type Message } from "../api";
+import type { Fleet, Saved } from "../fleet";
 
-const props = defineProps<{ apiKey: string; endpoint: Endpoint; fleet: Fleet }>();
+const props = defineProps<{ vllmKey: string; model: Saved; fleet: Fleet }>();
 defineEmits<{ back: [] }>();
 
 const messages = ref<Message[]>([]);
 const draft = ref("");
 const busy = ref(false);
-const queued = ref(false);
 const error = ref("");
 const list = ref<HTMLElement>();
-let stopped = false;
-onUnmounted(() => (stopped = true));
 
-const state = computed(() => gpuState(props.fleet.s.workers[props.endpoint.id] ?? []));
-const DONE = new Set(["COMPLETED", "FAILED", "CANCELLED", "TIMED_OUT"]);
-const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const state = computed(() => props.fleet.state(props.model));
 const scroll = () => nextTick(() => list.value?.lastElementChild?.scrollIntoView({ block: "end" }));
+// ponytail: keep the last 20 turns so long chats stay inside the 8192-token context; token-count trimming if that bites
+const HISTORY = 20;
 
 async function send() {
   const text = draft.value.trim();
-  if (!text || busy.value) return;
+  const podId = props.model.podId;
+  if (!text || busy.value || !podId || state.value !== "On") return;
   draft.value = "";
   error.value = "";
   busy.value = true;
+  props.fleet.s.answering = podId;
   messages.value.push({ role: "user", content: text });
-  const history = messages.value.slice();
+  const history = messages.value.slice(-HISTORY);
   messages.value.push({ role: "assistant", content: "" });
+  const reply = messages.value[messages.value.length - 1];
   scroll();
   try {
-    const job = await startChat(props.apiKey, props.endpoint.id, history);
-    for (;;) {
-      if (stopped) return;
-      const r = await pollStream(props.apiKey, props.endpoint.id, job);
-      queued.value = r.status === "IN_QUEUE";
-      messages.value[messages.value.length - 1].content += streamText(r.stream ?? []);
+    await chatStream(podId, props.vllmKey, props.model.id, history, (t) => {
+      reply.content = t;
       scroll();
-      if (DONE.has(r.status)) {
-        if (r.status !== "COMPLETED") error.value = `The model stopped with status ${r.status}. Try sending again.`;
-        break;
-      }
-      await wait(500);
-    }
+    });
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e);
   } finally {
     busy.value = false;
-    queued.value = false;
-    if (!messages.value.at(-1)?.content) messages.value.pop();
+    props.fleet.s.answering = "";
+    props.fleet.touch(podId);
+    if (!reply.content) messages.value.pop();
   }
 }
+
+// Enter sends, Shift+Enter adds a line; never send while an IME (Chinese, Japanese, Korean) is composing.
+const onEnter = (e: KeyboardEvent) => {
+  if (e.isComposing || e.keyCode === 229) return;
+  e.preventDefault();
+  send();
+};
 </script>
 
 <template>
   <section class="chat">
     <header>
       <button class="quiet" @click="$emit('back')">Back to models</button>
-      <h1>{{ endpoint.name.replace(/^hose-/, "").replace(/\s*-fb$/, "") }}</h1>
-      <p class="muted">GPU: {{ state }}</p>
+      <h1>{{ model.id.split("/").pop() }}</h1>
+      <p class="muted">
+        {{ state }} on {{ model.gpuName }}
+        <template v-if="state === 'On'">· turns off {{ model.idleMin }} quiet minutes after your last message</template>
+      </p>
     </header>
 
     <ol ref="list" class="messages" aria-live="polite">
-      <li v-if="!messages.length" class="muted">Say hello. The first reply after a break takes a minute or two while the GPU wakes up.</li>
+      <li v-if="!messages.length" class="muted">Say hello.</li>
       <li v-for="(m, i) in messages" :key="i" :class="m.role">{{ m.content || "…" }}</li>
     </ol>
-    <p v-if="queued" class="muted">Waking up the GPU. You're billed from now until a minute after the reply.</p>
+    <p v-if="state === 'Starting'" class="muted">Still downloading and loading the model. Chat opens up when it's on.</p>
+    <p v-if="state === 'Off'" class="muted">This model is off. Go back to your models and turn it on to keep chatting.</p>
     <p v-if="error" class="error" role="alert">{{ error }}</p>
 
     <form class="composer panel" @submit.prevent="send">
@@ -76,9 +78,9 @@ async function send() {
         aria-label="Message"
         placeholder="Type a message. Enter sends, Shift+Enter adds a line."
         rows="2"
-        @keydown.enter.exact.prevent="send"
+        @keydown.enter.exact="onEnter"
       />
-      <button class="primary" :disabled="busy || !draft.trim()">Send</button>
+      <button class="primary" :disabled="busy || !draft.trim() || state !== 'On'">Send</button>
     </form>
   </section>
 </template>

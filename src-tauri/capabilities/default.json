@@ -9,7 +9,7 @@
       "identifier": "http:default",
       "allow": [
         { "url": "https://api.runpod.io/*" },
-        { "url": "https://api.runpod.ai/*" },
+        { "url": "https://*.proxy.runpod.net/*" },
         { "url": "https://huggingface.co/*" }
       ]
     }

@@ -8,7 +8,7 @@
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "test": "vue-tsc --noEmit && vitest run",
+    "test": "vue-tsc --noEmit && vitest run && python3 -I -B tests/watchdog_test.py",
     "dev:mock": "VITE_MOCK=1 vite --port 5199 --strictPort"
   },
   "dependencies": {

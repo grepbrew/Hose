@@ -2,11 +2,10 @@
 // management API blocks browser CORS); in vite dev / tests plain fetch is used and msw answers.
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import { isTauri } from "@tauri-apps/api/core";
-import type { Gpu, HfInfo } from "./cost";
+import { sseText, type Cloud, type Gpu, type HfInfo } from "./cost";
 
 const REST = "https://api.runpod.io/v2";
 const GQL = "https://api.runpod.io/graphql";
-const RUN = "https://api.runpod.ai/v2";
 const HF = "https://huggingface.co";
 
 const http: typeof fetch = (input, init) => (isTauri() ? tauriFetch(input, init) : fetch(input, init));
@@ -39,50 +38,55 @@ export async function getBalance(key: string): Promise<number> {
   return myself.clientBalance;
 }
 
-export const getGpus = (key: string) =>
-  runpod<{ gpus: Gpu[] }>(`${REST}/catalog/gpus?include=AVAILABILITY&product=SERVERLESS`, key).then((r) => r.gpus);
+export const getGpus = (key: string, cloud: Cloud) =>
+  runpod<{ gpus: Gpu[] }>(`${REST}/catalog/gpus?include=AVAILABILITY&product=POD&cloud=${cloud}&minCudaVersion=13.0`, key).then((r) => r.gpus);
 
-// --- endpoints -------------------------------------------------------------
+// --- pods ------------------------------------------------------------------
 
-export type Endpoint = { id: string; name: string; env?: Record<string, string> };
-export type Worker = { id: string; gpuTypeId: string; gpuCount: number; status: string };
+export type Pod = { id: string; name: string; status: string; cost: number; createdAt?: string };
 
-export async function listHoseEndpoints(key: string): Promise<Endpoint[]> {
-  const { endpoints } = await runpod<{ endpoints: Endpoint[] }>(`${REST}/serverless`, key);
-  return endpoints.filter((e) => e.name.startsWith("hose-"));
+// ponytail: first page only (default page size); fine while people run a handful of pods
+export const listHosePods = (key: string) =>
+  runpod<{ pods: Pod[] }>(`${REST}/pods`, key).then((r) => r.pods.filter((p) => p.name.startsWith("hose-")));
+
+export const createPod = (key: string, input: object) => runpod<Pod>(`${REST}/pods`, key, { method: "POST", body: JSON.stringify(input) });
+
+export const deletePod = (key: string, id: string) => runpod<void>(`${REST}/pods/${id}`, key, { method: "DELETE" });
+
+// --- chat (vLLM on the pod, through RunPod's public proxy, guarded by vLLM's --api-key) ---------------
+
+const podUrl = (id: string) => `https://${id}-8000.proxy.runpod.net`;
+
+/** vLLM answers /v1/models once the model is loaded; before that the proxy returns 404/502. */
+export async function podReady(id: string, apiKey: string): Promise<boolean> {
+  try {
+    return (await http(`${podUrl(id)}/v1/models`, { headers: { Authorization: `Bearer ${apiKey}` } })).ok;
+  } catch {
+    return false;
+  }
 }
-
-export const createEndpoint = (key: string, input: object) =>
-  gql<{ saveEndpoint: Endpoint }>(key, "mutation ($input: EndpointInput!) { saveEndpoint(input: $input) { id name } }", { input }).then(
-    (d) => d.saveEndpoint,
-  );
-
-export const deleteEndpoint = (key: string, id: string) => runpod<void>(`${REST}/serverless/${id}`, key, { method: "DELETE" });
-
-export const getWorkers = (key: string, id: string) =>
-  runpod<{ workers: Worker[] }>(`${REST}/serverless/${id}/workers`, key).then((r) => r.workers);
-
-export async function endpointCostToday(key: string, id: string): Promise<number> {
-  const r = await runpod<{ records: { totalAmount: number }[] }>(
-    `${REST}/billing/serverless?serverlessId=${id}&bucketSize=day&lastN=1`,
-    key,
-  );
-  return r.records.reduce((sum, rec) => sum + rec.totalAmount, 0);
-}
-
-// --- chat (inference host) ------------------------------------------------
 
 export type Message = { role: "user" | "assistant"; content: string };
-export type StreamPoll = { status: string; stream: { output: unknown }[] };
 
-export const startChat = (key: string, endpointId: string, messages: Message[]) =>
-  runpod<{ id: string }>(`${RUN}/${endpointId}/run`, key, {
+/** Streams the reply; onText gets the whole text so far after every chunk. Resolves with the full reply. */
+export async function chatStream(id: string, apiKey: string, model: string, messages: Message[], onText: (text: string) => void) {
+  const res = await http(`${podUrl(id)}/v1/chat/completions`, {
     method: "POST",
-    body: JSON.stringify({ input: { messages, sampling_params: { max_tokens: 1024, temperature: 0.7 }, stream: true } }),
-  }).then((r) => r.id);
-
-export const pollStream = (key: string, endpointId: string, jobId: string) =>
-  runpod<StreamPoll>(`${RUN}/${endpointId}/stream/${jobId}`, key);
+    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+    // enable_thinking off: Qwen3 would otherwise stream its raw <think> notes; other models' templates ignore it
+    body: JSON.stringify({ model, messages, stream: true, max_tokens: 1024, temperature: 0.7, chat_template_kwargs: { enable_thinking: false } }),
+  });
+  if (!res.ok || !res.body) throw new Error(`The model answered with error ${res.status}`);
+  const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+  let raw = "";
+  for (let r = await reader.read(); !r.done; r = await reader.read()) {
+    raw += r.value;
+    onText(sseText(raw.slice(0, raw.lastIndexOf("\n") + 1))); // only complete lines parse
+  }
+  const text = sseText(raw);
+  onText(text);
+  return text;
+}
 
 // --- Hugging Face ------------------------------------------------------------
 

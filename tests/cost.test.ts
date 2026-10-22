@@ -1,15 +1,18 @@
 import { describe, it, expect } from "vitest";
-import { vramNeededGb, pickPools, parseHfModel, burnRatePerHr, gpuState, endpointInput, streamText, PRESETS, type Gpu } from "../src/cost";
+import STREAM from "./fixtures/chat-stream.txt?raw";
+import STREAM_TEXT from "./fixtures/chat-stream.expected.txt?raw";
+import { vramNeededGb, parseHfModel, gpuCards, podInput, burnRatePerHr, sseText, PRESETS, VLLM_IMAGE, type Gpu } from "../src/cost";
 
-const gpu = (pool: string, memory: number, serverless: number, availability = "HIGH"): Gpu => ({
-  id: `gpu-${pool}`,
-  pool,
+// Shape of GET /v2/catalog/gpus items (api.runpod.io/v2/openapi.json); price is null off that cloud.
+const gpu = (name: string, memory: number, secure: number | null, community: number | null, availability = "HIGH"): Gpu => ({
+  id: `NVIDIA ${name}`,
+  name,
   memory,
-  price: { serverless },
+  secure: secure !== null,
+  community: community !== null,
+  price: { secure, community },
   availability,
 });
-
-const catalog = [gpu("AMPERE_16", 16, 0.58), gpu("AMPERE_24", 24, 0.69), gpu("AMPERE_48", 48, 1.22), gpu("AMPERE_80", 80, 2.72)];
 
 describe("vramNeededGb", () => {
   it("bf16 8B", () => {
@@ -22,44 +25,6 @@ describe("vramNeededGb", () => {
     const need = vramNeededGb({ BF16: 1e9, U8: 10e9 });
 
     expect(need).toBeCloseTo((2 + 10) * 1.2 + 2, 5);
-  });
-});
-
-describe("PRESETS", () => {
-  it.each([
-    ["Fast", "AMPERE_16"],
-    ["Balanced", "AMPERE_24"],
-    ["Smarter", "AMPERE_48"],
-  ])("%s fits %s", (label, pool) => {
-    const preset = PRESETS.find((p) => p.label === label)!;
-
-    const pick = pickPools(catalog, vramNeededGb(preset.params));
-
-    expect(pick.pools[0]).toBe(pool);
-  });
-});
-
-describe("pickPools", () => {
-  it("picks smallest fit + next", () => {
-    const pick = pickPools(catalog, 21.2);
-
-    expect(pick.pools).toEqual(["AMPERE_24", "AMPERE_48"]);
-  });
-
-  it("skips NONE", () => {
-    const pick = pickPools([...catalog.filter((g) => g.pool !== "AMPERE_24"), gpu("AMPERE_24", 24, 0.69, "NONE")], 21.2);
-
-    expect(pick.pools[0]).toBe("AMPERE_48");
-  });
-
-  it("too big", () => {
-    expect(() => pickPools(catalog, 150)).toThrow(/too big/);
-  });
-
-  it("skips null pool", () => {
-    const pick = pickPools([{ ...gpu("AMPERE_24", 24, 0.1), pool: null }, ...catalog], 21.2);
-
-    expect(pick.pools).toEqual(["AMPERE_24", "AMPERE_48"]);
   });
 });
 
@@ -85,69 +50,70 @@ describe("parseHfModel", () => {
   });
 });
 
-describe("burnRatePerHr", () => {
-  it("sums billed", () => {
-    const workers = [
-      { id: "w1", gpuTypeId: "NVIDIA GeForce RTX 4090", gpuCount: 1, status: "RUNNING" },
-      { id: "w2", gpuTypeId: "NVIDIA RTX A5000", gpuCount: 1, status: "IDLE" },
-      { id: "w3", gpuTypeId: "NVIDIA RTX A5000", gpuCount: 1, status: "THROTTLED" },
+describe("gpuCards", () => {
+  it("secure cards", () => {
+    const catalog = [
+      gpu("RTX 4090", 24, 0.89, 0.59),
+      gpu("RTX A4000", 16, 0.25, 0.17),
+      gpu("RTX A5000", 24, 0.27, 0.16, "NONE"),
+      gpu("A40", 48, 0.59, null),
+      gpu("RTX 3070", 8, null, 0.13),
     ];
-    const prices = { "NVIDIA GeForce RTX 4090": 1.1, "NVIDIA RTX A5000": 0.69 };
 
-    const rate = burnRatePerHr(workers, prices);
+    const cards = gpuCards(catalog, "SECURE", 21.2);
 
-    expect(rate).toBeCloseTo(1.79, 5);
+    expect(cards.map((c) => [c.name, c.price, c.fits, c.reason])).toEqual([
+      ["RTX A4000", 0.25, false, "Too small"],
+      ["RTX A5000", 0.27, false, "Sold out"],
+      ["A40", 0.59, true, ""],
+      ["RTX 4090", 0.89, true, ""],
+    ]);
   });
 });
 
-describe("gpuState", () => {
-  const w = (status: string) => ({ id: status, gpuTypeId: "g", gpuCount: 1, status });
-
-  it.each([
-    [[], "Asleep"],
-    [[w("THROTTLED")], "Asleep"],
-    [[w("INITIALIZING")], "Waking up"],
-    [[w("IDLE")], "Ready"],
-    [[w("IDLE"), w("RUNNING")], "Answering"],
-  ])("%j -> %s", (workers, state) => {
-    expect(gpuState(workers)).toBe(state);
-  });
-});
-
-describe("endpointInput", () => {
+describe("podInput", () => {
   const model = PRESETS[1];
 
-  it("guardrail", () => {
-    const input = endpointInput(model, ["AMPERE_24", "AMPERE_48"], "hf_x");
+  it("full", () => {
+    const input = podInput(model, "NVIDIA GeForce RTX 4090", "SECURE", "hf_x", "k1", 10, "WD");
 
     expect(input).toMatchObject({
-      workersMin: 0,
-      workersMax: 1,
-      idleTimeout: 60,
-      gpuIds: "AMPERE_24,AMPERE_48",
-      minCudaVersion: "13.0",
-      modelReferences: ["https://huggingface.co/Qwen/Qwen3-8B:main"],
-      flashBootType: "FLASHBOOT",
+      name: "hose-qwen3-8b",
+      image: VLLM_IMAGE,
+      gpu: { id: "NVIDIA GeForce RTX 4090", count: 1, minCudaVersion: "13.0" },
+      cloud: "SECURE",
+      ports: ["8000/http"],
+      // 8.19B BF16 = 16.38 GB weights -> ceil(16.38 * 1.5) + 20
+      disk: 45,
+      env: { MODEL: "Qwen/Qwen3-8B", HOSE_KEY: "k1", HOSE_IDLE_MIN: "10", HOSE_WATCHDOG: "WD", HF_TOKEN: "hf_x" },
     });
-    // 8.19B BF16 = 16.38 GB weights -> ceil(16.38 * 1.5) + 20
-    expect(input.template.containerDiskInGb).toBe(45);
-    expect(input.name).toMatch(/^hose-qwen3-8b/);
-    expect(input.template.env).toContainEqual({ key: "MODEL_NAME", value: "Qwen/Qwen3-8B" });
-    expect(input.template.env).toContainEqual({ key: "HF_TOKEN", value: "hf_x" });
+    // no exec: if vLLM dies the container stays up, so the watchdog (not a fresh copy after a restart) deletes the pod
+    expect(input.entrypoint.join(" ")).toMatch(/python3 -c "\$HOSE_WATCHDOG" & vllm serve "\$MODEL" .*--api-key "\$HOSE_KEY".*; sleep infinity$/);
   });
 
   it("no token", () => {
-    const input = endpointInput(model, ["AMPERE_24"], "");
+    const input = podInput(model, "NVIDIA GeForce RTX 4090", "SECURE", "", "k1", 10, "WD");
 
-    expect(input.template.env.map((e) => e.key)).not.toContain("HF_TOKEN");
+    expect(Object.keys(input.env)).not.toContain("HF_TOKEN");
   });
 });
 
-describe("streamText", () => {
-  it("joins", () => {
-    // ponytail: provisional vLLM worker chunk shape; replace with spike capture
-    const chunks = [{ output: { choices: [{ tokens: ["Hel", "lo"] }] } }, { output: { choices: [{ tokens: [" there"] }] } }];
+describe("sseText", () => {
+  it("joins deltas", () => {
+    // captured from a real vLLM pod during the 2026-10-22 spike
+    expect(sseText(STREAM)).toBe(STREAM_TEXT);
+  });
+});
 
-    expect(streamText(chunks)).toBe("Hello there");
+describe("burnRatePerHr", () => {
+  it("running only", () => {
+    const pods = [
+      { status: "RUNNING", cost: 0.89 },
+      { status: "EXITED", cost: 0.24 },
+    ];
+
+    const rate = burnRatePerHr(pods);
+
+    expect(rate).toBeCloseTo(0.89, 5);
   });
 });

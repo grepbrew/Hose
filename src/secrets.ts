@@ -1,6 +1,6 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 
-export type SecretName = "runpod" | "hf";
+export type SecretName = "runpod" | "hf" | "vllm";
 
 // Keychain inside the app. Outside Tauri (vite dev / screen tests) fall back to localStorage.
 export const getSecret = async (name: SecretName): Promise<string> =>

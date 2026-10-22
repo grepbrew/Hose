@@ -25,3 +25,5 @@ dist-ssr
 
 # screen test evidence
 tests/screen/evidence/
+graphify-out/
+__pycache__/

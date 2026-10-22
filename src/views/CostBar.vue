@@ -15,7 +15,7 @@ const money = (n: number | null, digits = 2) => (n == null ? "…" : `$${n.toFix
         <dt>Balance</dt>
         <dd>{{ money(fleet.s.balance) }}</dd>
       </div>
-      <div title="What your running GPUs cost right now. $0.00 when everything is asleep.">
+      <div title="What your GPUs that are on cost right now. $0.00 when everything is off.">
         <dt>Now</dt>
         <dd>{{ money(fleet.ratePerHr.value) }}/hr</dd>
       </div>

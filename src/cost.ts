@@ -1,10 +1,15 @@
-// Pure logic: model sizing, GPU picking, cost math. No I/O here so it stays unit-testable.
+// Pure logic: model sizing, GPU cards, Pod spec, cost math. No I/O here so it stays unit-testable.
 
+export type Cloud = "SECURE" | "COMMUNITY";
+
+/** One item of GET /v2/catalog/gpus. price.<cloud> is null when the GPU isn't offered on that cloud. */
 export type Gpu = {
   id: string;
-  pool: string | null; // null when the GPU is not in a serverless pool
+  name: string;
   memory: number;
-  price: { serverless: number };
+  secure: boolean;
+  community: boolean;
+  price: { secure: number | null; community: number | null };
   availability?: string;
 };
 
@@ -28,19 +33,19 @@ export const weightsGb = (params: Record<string, number>) =>
 // weights + 20% runtime overhead + 2 GB KV cache for an 8k context
 export const vramNeededGb = (params: Record<string, number>) => weightsGb(params) * 1.2 + 2;
 
-/** Cheapest two GPU pools that fit, so RunPod has a fallback when the first is sold out. */
-export function pickPools(catalog: Gpu[], needGb: number) {
-  const pools = new Map<string, { memory: number; price: number }>();
-  for (const g of catalog) {
-    if (!g.pool || g.memory < needGb || g.availability === "NONE" || !g.price.serverless) continue;
-    const p = pools.get(g.pool);
-    // a pool mixes GPU types; quote the dearest so the shown price is a ceiling
-    pools.set(g.pool, { memory: g.memory, price: Math.max(p?.price ?? 0, g.price.serverless) });
-  }
-  const picked = [...pools].sort((a, b) => a[1].price - b[1].price).slice(0, 2);
-  if (!picked.length) throw new Error(`Model too big: needs ~${Math.ceil(needGb)} GB, no available GPU has that much`);
-  // RunPod may land on either pool, so quote the range
-  return { pools: picked.map(([pool]) => pool), price: { from: picked[0][1].price, to: picked.at(-1)![1].price } };
+export type GpuCard = { id: string; name: string; memory: number; price: number; stock: string; fits: boolean; reason: string };
+
+/** Cards for the GPU picker: every GPU offered on this cloud, cheapest first, marked whether it can run the model. */
+export function gpuCards(catalog: Gpu[], cloud: Cloud, needGb: number): GpuCard[] {
+  const key = cloud === "SECURE" ? "secure" : "community";
+  return catalog
+    .filter((g) => g[key] && g.price[key])
+    .map((g) => {
+      const stock = g.availability ?? "NONE";
+      const reason = g.memory < needGb ? "Too small" : stock === "NONE" ? "Sold out" : "";
+      return { id: g.id, name: g.name, memory: g.memory, price: g.price[key]!, stock, fits: !reason, reason };
+    })
+    .sort((a, b) => a.price - b.price);
 }
 
 export type HfInfo = {
@@ -57,58 +62,48 @@ export function parseHfModel(info: HfInfo, hasToken: boolean): { ok: true; model
   return { ok: true, model: { id: info.id, params: info.safetensors.parameters } };
 }
 
-export type WorkerLike = { gpuTypeId: string; gpuCount: number; status: string };
-
-// Flex workers bill per second from start until fully stopped, including cold start and idle timeout.
-const BILLED = new Set(["running", "idle", "initializing"]);
-const billed = (w: WorkerLike) => BILLED.has(w.status.toLowerCase());
-
-export const burnRatePerHr = (workers: WorkerLike[], priceByGpu: Record<string, number>) =>
-  workers.filter(billed).reduce((sum, w) => sum + (priceByGpu[w.gpuTypeId] ?? 0) * w.gpuCount, 0);
-
-export function gpuState(workers: WorkerLike[]): "Asleep" | "Waking up" | "Ready" | "Answering" {
-  const st = new Set(workers.filter(billed).map((w) => w.status.toLowerCase()));
-  if (st.has("running")) return "Answering";
-  if (st.has("idle")) return "Ready";
-  if (st.has("initializing")) return "Waking up";
-  return "Asleep";
-}
-
-export const VLLM_IMAGE = "runpod/worker-v1-vllm:v2.30.0";
+// CUDA 13.0 build. The -cu129 tag crash-loops: its torchcodec wants libnvrtc.so.13 (spike 2026-10-22).
+export const VLLM_IMAGE = "vllm/vllm-openai:v0.32.0";
 
 const slug = (id: string) => id.split("/").pop()!.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40);
 
-/** GraphQL saveEndpoint input. Spend guardrail: no always-on workers (scale to zero after 60 s idle), at most one GPU. */
-export function endpointInput(model: Model, pools: string[], hfToken: string, stamp = Date.now()) {
-  const env = [
-    { key: "MODEL_NAME", value: model.id },
-    { key: "MAX_MODEL_LEN", value: "8192" },
-    ...(hfToken ? [{ key: "HF_TOKEN", value: hfToken }] : []),
-  ];
-  const name = `hose-${slug(model.id)}`;
+/**
+ * POST /v2/pods body. The watchdog script rides along in env and starts next to vLLM; it deletes the Pod
+ * after idleMin quiet minutes, so a forgotten model stops billing even with Hose closed.
+ */
+export function podInput(model: Model, gpuId: string, cloud: Cloud, hfToken: string, apiKey: string, idleMin: number, watchdog: string) {
   return {
-    name,
-    gpuIds: pools.join(","),
-    gpuCount: 1,
-    workersMin: 0,
-    workersMax: 1,
-    idleTimeout: 60,
-    scalerType: "QUEUE_DELAY",
-    scalerValue: 4,
-    flashBootType: "FLASHBOOT",
-    minCudaVersion: "13.0",
-    modelReferences: [`https://huggingface.co/${model.id}:main`],
-    template: {
-      name: `${name}-${stamp}`,
-      imageName: VLLM_IMAGE,
-      containerDiskInGb: Math.ceil(weightsGb(model.params) * 1.5) + 20,
-      dockerArgs: "",
-      env,
+    name: `hose-${slug(model.id)}`,
+    image: VLLM_IMAGE,
+    gpu: { id: gpuId, count: 1, minCudaVersion: "13.0" },
+    cloud,
+    disk: Math.ceil(weightsGb(model.params) * 1.5) + 20,
+    ports: ["8000/http"],
+    env: {
+      MODEL: model.id,
+      HOSE_KEY: apiKey,
+      HOSE_IDLE_MIN: String(idleMin),
+      HOSE_WATCHDOG: watchdog,
+      ...(hfToken ? { HF_TOKEN: hfToken } : {}),
     },
+    entrypoint: [
+      "bash",
+      "-c",
+      // no exec: if vLLM dies the container stays up and this watchdog deletes the pod. A container restart would
+      // start a fresh watchdog with a fresh boot timer, so a crash loop could bill forever.
+      'python3 -c "$HOSE_WATCHDOG" & vllm serve "$MODEL" --port 8000 --api-key "$HOSE_KEY" --max-model-len 8192; sleep infinity',
+    ],
   };
 }
 
-type Chunk = { output: unknown };
-/** Text carried by a batch of /stream chunks from the vLLM worker. */
-export const streamText = (stream: Chunk[]) =>
-  stream.map((c) => (c.output as { choices?: { tokens?: string[] }[] }).choices?.[0]?.tokens?.join("") ?? "").join("");
+/** Text carried by OpenAI-style SSE from vLLM /v1/chat/completions with stream: true. */
+export const sseText = (raw: string) =>
+  raw
+    .split("\n")
+    .filter((l) => l.startsWith("data: ") && l !== "data: [DONE]")
+    .map((l) => JSON.parse(l.slice(6)).choices?.[0]?.delta?.content ?? "")
+    .join("");
+
+/** Pods bill per second while RUNNING; `cost` is RunPod's $/hr for that pod. */
+export const burnRatePerHr = (pods: { status: string; cost: number }[]) =>
+  pods.filter((p) => p.status === "RUNNING").reduce((sum, p) => sum + p.cost, 0);
