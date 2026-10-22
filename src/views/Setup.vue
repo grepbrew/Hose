@@ -3,7 +3,8 @@ import { ref } from "vue";
 import { getBalance, hfWhoami } from "../api";
 import { saveKeys, type Keys } from "../secrets";
 
-const props = defineProps<{ keys: Keys }>();
+// First run: a full-screen card with no sidebar. `embedded`: the same form as Settings › Keys inside the content area.
+const props = defineProps<{ keys: Keys; embedded?: boolean }>();
 const emit = defineEmits<{ saved: [Keys]; cancel: [] }>();
 
 const runpodKey = ref(props.keys.runpod);
@@ -29,48 +30,168 @@ async function save() {
 </script>
 
 <template>
-  <section class="setup">
-    <h1>Connect your accounts</h1>
-    <p class="muted">
-      Hose rents GPUs on your RunPod account and downloads models from Hugging Face. Your keys stay in this Mac's Keychain.
-    </p>
-    <form class="panel" @submit.prevent="save">
-      <div class="field">
-        <label for="runpod-key">RunPod API key</label>
-        <small id="runpod-key-hint">On runpod.io, open Settings, then API Keys, and create a key with read and write access.</small>
-        <input id="runpod-key" v-model="runpodKey" class="secret" aria-describedby="runpod-key-hint" autocomplete="off" spellcheck="false" required />
+  <section v-if="embedded" class="page-col">
+    <header class="bar" data-tauri-drag-region>
+      <h1><span class="muted crumb">Settings ›</span> Keys</h1>
+    </header>
+    <div class="scroll">
+      <form class="panel" @submit.prevent="save">
+        <p class="muted intro">Hose rents GPUs on your RunPod account and downloads models from Hugging Face. Your keys stay in this Mac's Keychain.</p>
+        <div class="fieldset">
+          <label for="runpod-key">RunPod API key</label>
+          <span id="runpod-key-hint" class="hint">On runpod.io, open Settings, then API Keys, and create a key with read and write access.</span>
+          <input id="runpod-key" v-model="runpodKey" class="field secret" aria-describedby="runpod-key-hint" autocomplete="off" spellcheck="false" required />
+        </div>
+        <div class="fieldset">
+          <label for="hf-token">Hugging Face token</label>
+          <span id="hf-token-hint" class="hint">Optional. Only needed for gated models such as Llama. Create one at huggingface.co/settings/tokens.</span>
+          <input id="hf-token" v-model="hfToken" class="field secret" aria-describedby="hf-token-hint" autocomplete="off" spellcheck="false" />
+        </div>
+        <p v-if="error" class="error" role="alert">{{ error }}. Check the key and try again.</p>
+        <div class="actions">
+          <button class="btn primary" :disabled="saving || !runpodKey.trim()">{{ saving ? "Checking…" : "Save" }}</button>
+          <button type="button" class="btn quiet" @click="emit('cancel')">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </section>
+
+  <div v-else class="first">
+    <div class="drag" data-tauri-drag-region />
+    <form class="card-in" @submit.prevent="save">
+      <div class="brand"><span class="pop">Hose</span><i /></div>
+      <div class="lead">
+        <h1>Connect your accounts</h1>
+        <p class="muted">Hose rents GPUs on your RunPod account and downloads models from Hugging Face. Your keys stay in this Mac's Keychain.</p>
       </div>
-      <div class="field">
-        <label for="hf-token">Hugging Face token</label>
-        <small id="hf-token-hint">Optional. Only needed for gated models such as Llama. Create one at huggingface.co/settings/tokens.</small>
-        <input id="hf-token" v-model="hfToken" class="secret" aria-describedby="hf-token-hint" autocomplete="off" spellcheck="false" />
+      <div class="fieldset">
+        <label for="runpod-key">RunPod API key</label>
+        <span id="runpod-key-hint" class="hint">On runpod.io, open Settings, then API Keys, and create a key with read and write access.</span>
+        <input id="runpod-key" v-model="runpodKey" class="field secret" aria-describedby="runpod-key-hint" autocomplete="off" spellcheck="false" required />
+      </div>
+      <div class="fieldset">
+        <label for="hf-token">Hugging Face token <span class="opt">(optional)</span></label>
+        <span id="hf-token-hint" class="hint">Only needed for gated models such as Llama.</span>
+        <input id="hf-token" v-model="hfToken" class="field secret" aria-describedby="hf-token-hint" autocomplete="off" spellcheck="false" />
       </div>
       <p v-if="error" class="error" role="alert">{{ error }}. Check the key and try again.</p>
-      <div class="actions">
-        <button class="primary" :disabled="saving || !runpodKey.trim()">{{ saving ? "Checking…" : "Save" }}</button>
-        <button v-if="keys.runpod" type="button" class="quiet" @click="emit('cancel')">Back</button>
-      </div>
+      <button class="btn primary big wide" :disabled="saving || !runpodKey.trim()">{{ saving ? "Checking…" : "Save and continue" }}</button>
     </form>
-  </section>
+  </div>
 </template>
 
 <style scoped>
-.setup {
-  display: grid;
-  gap: 0.9rem;
-  max-width: 560px;
+.page-col {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
 }
-form {
-  display: grid;
-  gap: 1.1rem;
-  padding: 1.25rem;
+.bar {
+  height: 52px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  padding: 0 22px;
+  border-bottom: 1px solid var(--line);
 }
-/* ponytail: text input + masking instead of type=password, so it stays an accessible textbox and password managers leave it alone */
-.secret {
-  -webkit-text-security: disc;
+.bar h1 {
+  font-size: 14.5px;
+}
+.crumb {
+  font-weight: 500;
+}
+.scroll {
+  flex-grow: 1;
+  overflow: auto;
+  padding: 28px;
+}
+.panel {
+  max-width: 520px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 22px 24px;
+}
+.intro,
+.lead p {
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.fieldset {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.fieldset label {
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.hint {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.opt {
+  font-weight: 400;
+  color: var(--muted);
 }
 .actions {
   display: flex;
-  gap: 0.5rem;
+  gap: 8px;
+}
+.first {
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+.drag {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 52px;
+}
+.card-in {
+  width: 440px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 32px 32px 28px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.06);
+  animation: rise 320ms var(--ease-out) both;
+}
+.card-in .field {
+  height: 38px;
+}
+.brand {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.brand span {
+  font-size: 20px;
+  letter-spacing: -0.01em;
+}
+.brand i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.lead {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.lead h1 {
+  font-size: 19px;
+}
+.wide {
+  width: 100%;
 }
 </style>

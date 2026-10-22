@@ -2,7 +2,7 @@
 // management API blocks browser CORS); in vite dev / tests plain fetch is used and msw answers.
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import { isTauri } from "@tauri-apps/api/core";
-import { sseText, type Cloud, type Gpu, type HfInfo } from "./cost";
+import { sseText, CHAT_TAGS, type Cloud, type Gpu, type HfInfo, type Pod } from "./cost";
 
 const REST = "https://api.runpod.io/v2";
 const GQL = "https://api.runpod.io/graphql";
@@ -43,7 +43,7 @@ export const getGpus = (key: string, cloud: Cloud) =>
 
 // --- pods ------------------------------------------------------------------
 
-export type Pod = { id: string; name: string; status: string; cost: number; createdAt?: string };
+export type { Pod };
 
 // ponytail: first page only (default page size); fine while people run a handful of pods
 export const listHosePods = (key: string) =>
@@ -52,6 +52,18 @@ export const listHosePods = (key: string) =>
 export const createPod = (key: string, input: object) => runpod<Pod>(`${REST}/pods`, key, { method: "POST", body: JSON.stringify(input) });
 
 export const deletePod = (key: string, id: string) => runpod<void>(`${REST}/pods/${id}`, key, { method: "DELETE" });
+
+// ponytail: the whole data-center list once per app run (~40 rows); unknown ids show as the id
+let dataCenters: Promise<Record<string, string>> | null = null;
+export async function getDatacenterName(key: string, id: string): Promise<string> {
+  dataCenters ??= runpod<{ dataCenters: { id: string; name: string }[] }>(`${REST}/catalog/datacenters`, key)
+    .then((r) => Object.fromEntries(r.dataCenters.map((d) => [d.id, d.name])))
+    .catch((e) => {
+      dataCenters = null; // try again next time
+      throw e;
+    });
+  return (await dataCenters)[id] ?? id;
+}
 
 // --- chat (vLLM on the pod, through RunPod's public proxy, guarded by vLLM's --api-key) ---------------
 
@@ -104,6 +116,21 @@ export async function hfModelInfo(id: string, token: string): Promise<HfInfo> {
   if (res.status === 404 || res.status === 401) throw new Error("No model with that name on Hugging Face");
   if (!res.ok) throw new Error(`Hugging Face error ${res.status}`);
   return { ...(await res.json()), id };
+}
+
+export type HfHit = { id: string; params: Record<string, number>; downloads: number; gated: boolean | string };
+
+/** Chat models matching q, most downloaded first. Repos without safetensors (GGUF etc.) can't be sized or served: dropped. */
+export async function hfSearch(q: string, token: string): Promise<HfHit[]> {
+  const expand = ["pipeline_tag", "safetensors", "downloads", "gated"].map((f) => `expand[]=${f}`).join("&");
+  const res = await http(`${HF}/api/models?search=${encodeURIComponent(q)}&sort=downloads&limit=40&${expand}`, { headers: hfHeaders(token) });
+  if (!res.ok) throw new Error(`Hugging Face error ${res.status}`);
+  const all: (HfInfo & { downloads: number })[] = await res.json();
+  return all
+    .filter((m) => CHAT_TAGS.includes(m.pipeline_tag ?? "") && m.safetensors)
+    .sort((a, b) => b.downloads - a.downloads)
+    .slice(0, 12)
+    .map((m) => ({ id: m.id, params: m.safetensors!.parameters, downloads: m.downloads, gated: m.gated ?? false }));
 }
 
 // Gated models: the token must belong to someone who accepted the licence on the model page.

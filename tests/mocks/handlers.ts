@@ -4,22 +4,61 @@ import { http, HttpResponse } from "msw/http";
 
 const REST = "https://api.runpod.io/v2";
 
-type Pod = { id: string; name: string; status: string; cost: number };
+type Pod = { id: string; name: string; status: string; cost: number } & Record<string, unknown>;
 export const state = {
   pods: [] as Pod[],
   checks: {} as Record<string, number>, // readiness checks seen per pod; a new pod turns ready on the second
   n: 0,
 };
 
+// Fields a running GPU pod carries in GET /v2/pods (Pod schema in api.runpod.io/v2/openapi.json).
+const pod = (id: string, name: string, gpuId: string, cost: number, minutesAgo = 0): Pod => {
+  const at = new Date(Date.now() - minutesAgo * 60000).toISOString();
+  return {
+    id,
+    name,
+    status: "RUNNING",
+    cost,
+    cloud: "SECURE",
+    dataCenterId: "US-TX-3",
+    image: "vllm/vllm-openai:v0.32.0",
+    disk: 45,
+    gpu: { id: gpuId, count: 1, vcpuCount: 16, memory: 62 },
+    createdAt: at,
+    startedAt: at,
+    runtime: { uptime: minutesAgo * 60 },
+  };
+};
+
 /** Screen-test preconditions, picked with `?seed=` in mock mode. Saved models are seeded by main.ts. */
 export function seed(name: string | null) {
   state.pods = [];
   state.checks = {};
-  if (name === "on") {
-    state.pods.push({ id: "pod1", name: "hose-qwen3-8b", status: "RUNNING", cost: 0.89 });
+  if (name === "on" || name === "two") {
+    state.pods.push(pod("pod1", "hose-qwen3-8b", "NVIDIA RTX 4090", 0.89, 21));
     state.checks.pod1 = 1;
   }
+  if (name === "stray") {
+    state.pods.push(pod("pod9", "hose-llama-3-1-8b-instruct", "NVIDIA RTX 4090", 0.89, 5));
+    state.checks.pod9 = 1;
+  }
 }
+
+// GET /api/models?search= with expand[]: id, pipeline_tag, downloads, gated, safetensors (live shape 2026-10-22)
+const hfModel = (id: string, pipeline_tag: string | null, downloads: number, params: number | null, gated: boolean | string = false) => ({
+  id,
+  pipeline_tag,
+  downloads,
+  gated,
+  ...(params ? { safetensors: { parameters: { BF16: params }, total: params } } : {}),
+});
+const HF_MODELS = [
+  hfModel("deepseek-ai/DeepSeek-R1-Distill-Qwen-7B", "text-generation", 1316000, 7615616512),
+  hfModel("deepseek-ai/DeepSeek-OCR", "image-text-to-text", 2092524, 3336106240),
+  hfModel("antirez/deepseek-v4.1-flash-gguf", null, 1420082, null),
+  hfModel("deepseek-ai/Janus-Pro-7B", "any-to-any", 90000, 7420000000),
+  hfModel("black-forest-labs/FLUX.1-schnell", "text-to-image", 700000, 11.9e9),
+];
 
 const gpu = (name: string, memory: number, secure: number | null, community: number | null, availability = "HIGH") => ({
   id: `NVIDIA ${name}`,
@@ -60,6 +99,16 @@ export const handlers = [
     return HttpResponse.json({ errors: [{ message: "unknown query" }] });
   }),
   http.get(`${REST}/catalog/gpus`, ({ request }) => (denied(request) ? unauthorized() : HttpResponse.json({ gpus: GPUS }))),
+  http.get(`${REST}/catalog/datacenters`, ({ request }) =>
+    denied(request)
+      ? unauthorized()
+      : HttpResponse.json({
+          dataCenters: [
+            { id: "US-TX-3", name: "US Texas 3", region: "NORTH_AMERICA", networkVolumeTypes: [], compliance: [], globalNetwork: true },
+            { id: "EU-RO-1", name: "EU Romania 1", region: "EUROPE", networkVolumeTypes: [], compliance: [], globalNetwork: false },
+          ],
+        }),
+  ),
   http.get(`${REST}/pods`, ({ request }) =>
     denied(request)
       ? unauthorized()
@@ -71,9 +120,9 @@ export const handlers = [
   http.post(`${REST}/pods`, async ({ request }) => {
     if (denied(request)) return unauthorized();
     const { name } = (await request.json()) as { name: string };
-    const pod = { id: `pod${++state.n + 1}`, name, status: "RUNNING", cost: 0.89 };
-    state.pods.push(pod);
-    return HttpResponse.json(pod, { status: 201 });
+    const created = pod(`pod${++state.n + 1}`, name, "NVIDIA RTX 4090", 0.89);
+    state.pods.push(created);
+    return HttpResponse.json(created, { status: 201 });
   }),
   http.delete(`${REST}/pods/:id`, ({ params }) => {
     state.pods = state.pods.filter((p) => p.id !== params.id);
@@ -96,6 +145,12 @@ export const handlers = [
     return new HttpResponse(body, { headers: { "Content-Type": "text/event-stream" } });
   }),
   http.get("https://huggingface.co/api/whoami-v2", () => HttpResponse.json({ name: "tester" })),
+  http.get("https://huggingface.co/api/models", ({ request }) => {
+    const q = (new URL(request.url).searchParams.get("search") ?? "").toLowerCase();
+    return HttpResponse.json(HF_MODELS.filter((m) => m.id.toLowerCase().includes(q)));
+  }),
+  // gated-model licence check (hfCanDownload)
+  http.head("https://huggingface.co/:org/:name/resolve/main/config.json", () => new HttpResponse(null, { status: 200 })),
   http.get("https://huggingface.co/api/models/:org/:name", ({ params }) =>
     HttpResponse.json(
       params.name === "FLUX.1-schnell"

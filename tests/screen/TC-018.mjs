@@ -2,7 +2,7 @@
 // Run the `screen run:` line from tests/TEST_CASES.md: it starts the mock dev server, waits for it, then pipes this file.
 //
 // steps:
-//   1. open /?seed=none 2. fill Hugging Face model = black-forest-labs/FLUX.1-schnell 3. click Check 4. expect not a chat model
+//   1. open /?seed=none 2. click New pod 3. fill Search Hugging Face = black-forest-labs/FLUX.1-schnell 4. click Check 5. expect not a chat model
 //
 // One TaskSpace per run; pass/fail comes from the snapshot assertion. The PNG is evidence only.
 const BASE = "http://localhost:5199"; // must equal `base:` in TEST_CASES.md. process.env is NOT passed into ego's node runtime.
@@ -14,8 +14,9 @@ const page = task.page("p1");
 
 // act
 await page.goto(`${BASE}/?seed=none`, { waitUntil: "load" });
-await page.fill("loc=role:textbox[name='Hugging Face model']", "black-forest-labs/FLUX.1-schnell");
-await page.click('text="Check"', { label: "check hugging face model" });
+await page.click("loc=role:button[name='New pod']", { label: "new pod" });
+await page.fill("loc=role:textbox[name='Search Hugging Face']", "black-forest-labs/FLUX.1-schnell");
+await page.click("text=Check", { label: "check hugging face model" });
 
 // assert: the final `expect` step. The app updates asynchronously, so wait (bounded) for the text first.
 await page.waitForSelector(`text=${"not a chat model"}`, { state: "visible", timeout: 10000 }).catch(() => {});

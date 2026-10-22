@@ -1,37 +1,40 @@
 <script setup lang="ts">
-import { ref, computed, nextTick } from "vue";
-import { chatStream, type Message } from "../api";
-import type { Fleet, Saved } from "../fleet";
+import { ref, computed, nextTick, onMounted } from "vue";
+import { chatStream } from "../api";
+import { label, type Config } from "../cost";
+import type { Fleet } from "../fleet";
 
-const props = defineProps<{ vllmKey: string; model: Saved; fleet: Fleet }>();
-defineEmits<{ back: [] }>();
+const props = defineProps<{ vllmKey: string; config: Config; fleet: Fleet }>();
 
-const messages = ref<Message[]>([]);
+// History lives in the fleet (memory only), so it survives switching to another pod and back.
+const messages = computed(() => props.fleet.chatOf(props.config));
 const draft = ref("");
 const busy = ref(false);
 const error = ref("");
-const list = ref<HTMLElement>();
+const list = ref<{ $el: HTMLElement }>(); // the TransitionGroup; $el is the <ol>
 
-const state = computed(() => props.fleet.state(props.model));
-const scroll = () => nextTick(() => list.value?.lastElementChild?.scrollIntoView({ block: "end" }));
+const state = computed(() => props.fleet.state(props.config));
+const scroll = () => nextTick(() => list.value?.$el.lastElementChild?.scrollIntoView({ block: "end" }));
+onMounted(scroll);
 // ponytail: keep the last 20 turns so long chats stay inside the 8192-token context; token-count trimming if that bites
 const HISTORY = 20;
 
 async function send() {
   const text = draft.value.trim();
-  const podId = props.model.podId;
+  const podId = props.config.podId;
   if (!text || busy.value || !podId || state.value !== "On") return;
+  const msgs = messages.value;
   draft.value = "";
   error.value = "";
   busy.value = true;
   props.fleet.s.answering = podId;
-  messages.value.push({ role: "user", content: text });
-  const history = messages.value.slice(-HISTORY);
-  messages.value.push({ role: "assistant", content: "" });
-  const reply = messages.value[messages.value.length - 1];
+  msgs.push({ role: "user", content: text });
+  const history = msgs.slice(-HISTORY);
+  msgs.push({ role: "assistant", content: "" });
+  const reply = msgs[msgs.length - 1];
   scroll();
   try {
-    await chatStream(podId, props.vllmKey, props.model.id, history, (t) => {
+    await chatStream(podId, props.vllmKey, props.config.id, history, (t) => {
       reply.content = t;
       scroll();
     });
@@ -41,7 +44,7 @@ async function send() {
     busy.value = false;
     props.fleet.s.answering = "";
     props.fleet.touch(podId);
-    if (!reply.content) messages.value.pop();
+    if (!reply.content) msgs.pop();
   }
 }
 
@@ -54,82 +57,130 @@ const onEnter = (e: KeyboardEvent) => {
 </script>
 
 <template>
-  <section class="chat">
-    <header>
-      <button class="quiet" @click="$emit('back')">Back to models</button>
-      <h1>{{ model.id.split("/").pop() }}</h1>
-      <p class="muted">
-        {{ state }} on {{ model.gpuName }}
-        <template v-if="state === 'On'">· turns off {{ model.idleMin }} quiet minutes after your last message</template>
-      </p>
-    </header>
-
-    <ol ref="list" class="messages" aria-live="polite">
-      <li v-if="!messages.length" class="muted">Say hello.</li>
+  <section class="chat" aria-label="Chat">
+    <TransitionGroup ref="list" tag="ol" name="msg" class="messages" aria-live="polite">
+      <li v-if="!messages.length" key="hello" class="empty muted">Say hello to {{ label(config.id) }}.</li>
       <li v-for="(m, i) in messages" :key="i" :class="m.role">{{ m.content || "…" }}</li>
-    </ol>
-    <p v-if="state === 'Starting'" class="muted">Still downloading and loading the model. Chat opens up when it's on.</p>
-    <p v-if="state === 'Off'" class="muted">This model is off. Go back to your models and turn it on to keep chatting.</p>
-    <p v-if="error" class="error" role="alert">{{ error }}</p>
-
-    <form class="composer panel" @submit.prevent="send">
-      <textarea
-        v-model="draft"
-        aria-label="Message"
-        placeholder="Type a message. Enter sends, Shift+Enter adds a line."
-        rows="2"
-        @keydown.enter.exact="onEnter"
-      />
-      <button class="primary" :disabled="busy || !draft.trim() || state !== 'On'">Send</button>
+    </TransitionGroup>
+    <p v-if="state === 'Starting'" class="note muted">Still downloading and loading the model, 2–5 min. Chat opens up when it's on.</p>
+    <p v-if="error" class="note error" role="alert">{{ error }}</p>
+    <form class="composer" @submit.prevent="send">
+      <label class="grow">
+        <span class="sr">Message</span>
+        <textarea
+          v-model="draft"
+          aria-label="Message"
+          :placeholder="`Message ${label(config.id)}…`"
+          rows="2"
+          @keydown.enter.exact="onEnter"
+        />
+        <span class="kbd muted">Enter sends · Shift+Enter adds a line</span>
+      </label>
+      <button class="btn primary" :disabled="busy || !draft.trim() || state !== 'On'">Send</button>
     </form>
   </section>
 </template>
 
 <style scoped>
 .chat {
-  display: grid;
-  gap: 1rem;
-}
-header {
-  display: grid;
-  gap: 0.25rem;
-  justify-items: start;
-}
-header button {
-  padding-left: 0;
+  flex-grow: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
 }
 .messages {
+  width: 100%;
+  max-width: 820px;
+  align-self: center;
   list-style: none;
   margin: 0;
-  padding: 0;
-  display: grid;
-  gap: 0.75rem;
+  padding: 28px 28px 8px;
+  flex-grow: 1;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  font-size: 13px;
+  line-height: 1.5;
 }
 .messages li {
   white-space: pre-wrap;
-  max-width: 85%;
-  padding: 0.6rem 0.9rem;
-  border-radius: 14px;
 }
 .user {
-  justify-self: end;
-  background: var(--hose);
-  color: var(--surface);
+  align-self: flex-end;
+  max-width: 78%;
+  background: var(--accent);
+  color: var(--accent-ink);
+  padding: 9px 13px;
+  border-radius: 14px 14px 4px 14px;
 }
 .assistant {
+  align-self: flex-start;
+  max-width: 85%;
   background: var(--surface);
   border: 1px solid var(--line);
+  padding: 10px 14px;
+  border-radius: 14px 14px 14px 4px;
+}
+.empty {
+  align-self: center;
+  margin: auto 0;
+}
+.note {
+  width: 100%;
+  max-width: 780px;
+  align-self: center;
+  padding: 0 20px;
+  font-size: 12px;
 }
 .composer {
-  position: sticky;
-  bottom: 1rem;
+  width: calc(100% - 40px);
+  max-width: 780px;
+  align-self: center;
+  margin: 8px 20px 22px;
   display: flex;
-  gap: 0.5rem;
-  padding: 0.5rem;
-  align-items: end;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 10px 10px 10px 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
 }
-.composer textarea {
-  border: none;
+.grow {
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+textarea {
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink);
+  background: transparent;
+  border: 0;
   resize: none;
+  outline: none;
+  width: 100%;
+}
+.kbd {
+  font-size: 10.5px;
+}
+/* messages rise in */
+.msg-enter-active {
+  transition:
+    opacity 240ms var(--ease-out),
+    transform 240ms var(--ease-out);
+}
+.msg-enter-from {
+  opacity: 0;
+  transform: translateY(6px);
 }
 </style>

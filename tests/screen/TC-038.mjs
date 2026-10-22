@@ -2,7 +2,7 @@
 // Run the `screen run:` line from tests/TEST_CASES.md: it starts the mock dev server, waits for it, then pipes this file.
 //
 // steps:
-//   1. open /?seed=on 2. click Chat 3. fill Message = hi 4. click Send 5. expect Hello from fake GPU
+//   1. open /?seed=on 2. click Qwen3-8B · RTX 4090 3. fill Message = hi 4. click Send 5. expect Hello from fake GPU
 //
 // One TaskSpace per run; pass/fail comes from the snapshot assertion. The PNG is evidence only.
 const BASE = "http://localhost:5199"; // must equal `base:` in TEST_CASES.md. process.env is NOT passed into ego's node runtime.
@@ -14,7 +14,7 @@ const page = task.page("p1");
 
 // act
 await page.goto(`${BASE}/?seed=on`, { waitUntil: "load" });
-await page.click('text="Chat"', { label: "open chat" });
+await page.click("text=Qwen3-8B · RTX 4090 >> nth=0", { label: "open pod" });
 await page.fill('[aria-label="Message"]', "hi");
 await page.click('text="Send"', { label: "send" });
 
