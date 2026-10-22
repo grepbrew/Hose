@@ -1,4 +1,4 @@
-# Test cases — Hose (runpod-gpu-llm)
+# Test cases — Hose
 
 screen: yes
 run: `npm test`
