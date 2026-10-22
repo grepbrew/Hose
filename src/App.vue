@@ -41,16 +41,26 @@ async function use(k: Keys) {
   }
   loaded.value = true;
 }
+const keychainError = ref("");
 // The Keychain is read once per launch; Setup gets the keys as props and hands back what it saved.
-onMounted(async () => {
-  const k = await loadKeys();
-  // One random key per Mac guards every pod's public vLLM URL; only Hose and the pod know it.
-  if (!k.vllm) {
-    k.vllm = crypto.randomUUID();
-    await saveKeys(k);
+async function boot() {
+  keychainError.value = "";
+  let k: Keys;
+  try {
+    k = await loadKeys();
+    // One random key per Mac guards every pod's public vLLM URL; only Hose and the pod know it.
+    if (!k.vllm) {
+      k.vllm = crypto.randomUUID();
+      await saveKeys(k);
+    }
+  } catch (e) {
+    // Denied prompt, locked Keychain or an unreadable item: say so instead of a blank window. Tauri rejects with a string.
+    keychainError.value = e instanceof Error ? e.message : String(e);
+    return;
   }
   await use(k);
-});
+}
+onMounted(boot);
 
 const config = computed(() => (sel.value.kind === "config" ? fleet.s.configs.find((c) => c.key === (sel.value as { key: string }).key) : undefined));
 const stray = computed(() => (sel.value.kind === "stray" ? fleet.s.pods.find((p) => p.id === (sel.value as { podId: string }).podId) : undefined));
@@ -87,9 +97,25 @@ function keysSaved(k: Keys) {
       </main>
     </div>
   </template>
+  <div v-else class="boot" data-tauri-drag-region>
+    <template v-if="keychainError">
+      <p class="error" role="alert">Hose couldn't read your keys from the Keychain: {{ keychainError }}</p>
+      <button class="btn primary" @click="boot">Try again</button>
+    </template>
+    <p v-else class="muted">Reading your keys from the Keychain…</p>
+  </div>
 </template>
 
 <style scoped>
+.boot {
+  height: 100vh;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 12px;
+  padding: 0 24px;
+  text-align: center;
+}
 .shell {
   height: 100vh;
   display: grid;
