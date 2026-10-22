@@ -160,6 +160,7 @@ export async function chatStream(id: string, apiKey: string, model: string, mess
     onReply({ content, thinking, stats: "" });
   }
   const { content, thinking, usage } = sseReply(raw);
+  if (!content && !thinking) throw new Error("The model sent back an empty reply. Try sending again.");
   const end = performance.now();
   const reply = { content, thinking, stats: usage ? replyStats(usage, (first || end) - start, first ? end - first : 0) : "" };
   onReply(reply);

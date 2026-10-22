@@ -242,6 +242,10 @@ export const handlers = [
   ),
   http.post("https://*.proxy.runpod.net/v1/chat/completions", async ({ request }) => {
     state.lastChat = (await request.json()) as Record<string, any>;
+    const id = podId(request);
+    if (id === "broken") return new HttpResponse("Internal Server Error", { status: 500 });
+    // pod "mute": vLLM finishes without a word (stop + usage + [DONE] only)
+    if (id === "mute") return sse(SSE.slice(2));
     return sse(state.lastChat.chat_template_kwargs?.enable_thinking ? SSE_THINK : SSE);
   }),
   http.get("https://*.proxy.runpod.net/metrics", () => HttpResponse.text(metrics(state.served))),

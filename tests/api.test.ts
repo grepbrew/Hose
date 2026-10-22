@@ -68,6 +68,13 @@ describe("chatStream", () => {
     expect(state.lastChat!.messages[1]).toEqual({ role: "assistant", content: "x" });
     expect("max_tokens" in state.lastChat!).toBe(!think);
   });
+
+  it.each([
+    ["mute", "The model sent back an empty reply"],
+    ["broken", "The model answered with error 500"],
+  ])("%s rejects", async (id, msg) => {
+    await expect(chatStream(id, "k1", "Qwen/Qwen3-8B", [{ role: "user", content: "hi" }], false, () => {})).rejects.toThrow(msg);
+  });
 });
 
 describe("podLogs", () => {
