@@ -1,0 +1,87 @@
+# Tag vX.Y.Z (matching src-tauri/tauri.conf.json "version") -> universal .dmg on a GitHub release -> cask bumped in
+# grepbrew/homebrew-tap, so `brew install --cask grepbrew/tap/hose` / `brew upgrade` pick it up.
+# Needs repo secret TAP_TOKEN: fine-grained PAT with Contents read/write on grepbrew/homebrew-tap.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  macos:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - run: npm ci
+      - run: npm test
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # ponytail: unsigned for now. To sign + notarize, add these repo secrets; tauri-action picks them up:
+          # APPLE_CERTIFICATE, APPLE_CERTIFICATE_PASSWORD, APPLE_SIGNING_IDENTITY, APPLE_ID, APPLE_PASSWORD, APPLE_TEAM_ID
+          # then drop the quarantine postflight from the cask below.
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: Hose ${{ github.ref_name }}
+          releaseBody: "Install or update: `brew install --cask grepbrew/tap/hose` / `brew upgrade --cask hose`"
+          args: --target universal-apple-darwin
+
+      - name: Bump cask in tap
+        env:
+          GH_TOKEN: ${{ secrets.TAP_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          VERSION="${TAG#v}"
+          DMG="Hose_${VERSION}_universal.dmg"
+          SHA=$(shasum -a 256 "src-tauri/target/universal-apple-darwin/release/bundle/dmg/$DMG" | cut -d' ' -f1)
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/grepbrew/homebrew-tap.git" tap
+          mkdir -p tap/Casks
+          cat > tap/Casks/hose.rb <<EOF
+          cask "hose" do
+            version "${VERSION}"
+            sha256 "${SHA}"
+
+            url "https://github.com/grepbrew/Hose/releases/download/v#{version}/Hose_#{version}_universal.dmg"
+            name "Hose"
+            desc "Deploy Hugging Face chat models on RunPod GPUs and watch the cost"
+            homepage "https://github.com/grepbrew/Hose"
+
+            depends_on macos: ">= :monterey"
+
+            app "Hose.app"
+
+            # Not notarized yet: clear the quarantine flag so macOS opens it without the "damaged" warning.
+            postflight do
+              system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{appdir}/Hose.app"]
+            end
+
+            zap trash: [
+              "~/Library/Application Support/com.grepbrew.hose",
+              "~/Library/Caches/com.grepbrew.hose",
+              "~/Library/WebKit/com.grepbrew.hose",
+            ]
+
+            caveats <<~EOS
+              Hose is not notarized by Apple yet. If macOS still refuses to open it, go to
+              System Settings > Privacy & Security and click "Open Anyway" next to Hose.
+              Your API keys are stored in the macOS Keychain under "com.grepbrew.hose".
+            EOS
+          end
+          EOF
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Casks/hose.rb
+          git commit -m "hose ${VERSION}"
+          git push
