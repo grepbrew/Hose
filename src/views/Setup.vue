@@ -1,20 +1,15 @@
 <script setup lang="ts">
-import { ref, onMounted } from "vue";
+import { ref } from "vue";
 import { getBalance, hfWhoami } from "../api";
-import { getSecret, setSecret } from "../secrets";
+import { saveKeys, type Keys } from "../secrets";
 
-defineProps<{ hasKey: boolean }>();
-const emit = defineEmits<{ saved: []; cancel: [] }>();
+const props = defineProps<{ keys: Keys }>();
+const emit = defineEmits<{ saved: [Keys]; cancel: [] }>();
 
-const runpodKey = ref("");
-const hfToken = ref("");
+const runpodKey = ref(props.keys.runpod);
+const hfToken = ref(props.keys.hf);
 const error = ref("");
 const saving = ref(false);
-
-onMounted(async () => {
-  runpodKey.value = await getSecret("runpod");
-  hfToken.value = await getSecret("hf");
-});
 
 async function save() {
   error.value = "";
@@ -22,9 +17,9 @@ async function save() {
   try {
     await getBalance(runpodKey.value.trim());
     if (hfToken.value.trim()) await hfWhoami(hfToken.value.trim());
-    await setSecret("runpod", runpodKey.value.trim());
-    await setSecret("hf", hfToken.value.trim());
-    emit("saved");
+    const next = { ...props.keys, runpod: runpodKey.value.trim(), hf: hfToken.value.trim() };
+    await saveKeys(next);
+    emit("saved", next);
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e);
   } finally {
@@ -53,7 +48,7 @@ async function save() {
       <p v-if="error" class="error" role="alert">{{ error }}. Check the key and try again.</p>
       <div class="actions">
         <button class="primary" :disabled="saving || !runpodKey.trim()">{{ saving ? "Checking…" : "Save" }}</button>
-        <button v-if="hasKey" type="button" class="quiet" @click="emit('cancel')">Back</button>
+        <button v-if="keys.runpod" type="button" class="quiet" @click="emit('cancel')">Back</button>
       </div>
     </form>
   </section>

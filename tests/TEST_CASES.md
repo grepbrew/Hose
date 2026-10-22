@@ -35,6 +35,9 @@ Retired (serverless, replaced by Pods 2026-10-22): TC-002–007, 010, 013, 014, 
 | TC-038 | Chat reply | screen | seed on | 1. open /?seed=on 2. click Chat 3. fill Message = hi 4. click Send 5. expect Hello from fake GPU | streamed reply rendered | tests/screen/TC-038.mjs | pass |
 | TC-039 | Turn off | screen | seed on | 1. open /?seed=on 2. click Turn off 3. expect Off | row shows Off, pod deleted | tests/screen/TC-039.mjs | pass |
 | TC-040 | Live cost | screen | seed on | 1. open /?seed=on 2. expect Now $0.89/hr | meter shows pod cost | tests/screen/TC-040.mjs | pass |
+| TC-041 | Keys in one Keychain item | unit | Keychain item `keys` = {runpod r1, hf h1, vllm v1} | loadKeys() | returns the 3 keys with exactly one Keychain read | tests/secrets.test.ts > loadKeys > one read | pass |
+| TC-042 | Move old per-key items into one | unit | old items `runpod` = r1, `hf` = h1, no `keys` item | loadKeys() | returns r1/h1, writes item `keys`, deletes `runpod` and `hf` | tests/secrets.test.ts > loadKeys > migrates legacy items | pass |
+| TC-043 | Save writes one item | unit | empty Keychain | saveKeys({runpod r1, hf "", vllm v1}) | only item `keys` exists, holding that JSON | tests/secrets.test.ts > saveKeys > one item | pass |
 
 ## Rules
 

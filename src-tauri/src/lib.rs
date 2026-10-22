@@ -1,7 +1,13 @@
 // API keys live in the macOS Keychain, never in a plain file.
 const SERVICE: &str = "com.grepbrew.hose";
 
+// "keys" holds all secrets as one JSON item; the rest are per-key items from older builds, read once to migrate.
+const NAMES: [&str; 4] = ["keys", "runpod", "hf", "vllm"];
+
 fn entry(name: &str) -> Result<keyring::Entry, String> {
+    if !NAMES.contains(&name) {
+        return Err(format!("unknown secret {name}"));
+    }
     keyring::Entry::new(SERVICE, name).map_err(|e| e.to_string())
 }
 

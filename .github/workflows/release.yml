@@ -28,9 +28,14 @@ jobs:
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # ponytail: unsigned for now. To sign + notarize, add these repo secrets; tauri-action picks them up:
-          # APPLE_CERTIFICATE, APPLE_CERTIFICATE_PASSWORD, APPLE_SIGNING_IDENTITY, APPLE_ID, APPLE_PASSWORD, APPLE_TEAM_ID
-          # then drop the quarantine postflight from the cask below.
+          # Signed with the self-signed "Hose Local Signing" cert (tauri.conf.json signingIdentity). A stable
+          # signature keeps Keychain access across updates; ad-hoc builds re-prompt for the password every update.
+          # Before the first tag: Keychain Access > My Certificates > "Hose Local Signing" > Export (.p12), then
+          #   base64 -i hose.p12 | gh secret set APPLE_CERTIFICATE ; gh secret set APPLE_CERTIFICATE_PASSWORD
+          # ponytail: not notarized (no Apple Developer account). With one, add APPLE_SIGNING_IDENTITY (Developer ID),
+          # APPLE_ID, APPLE_PASSWORD, APPLE_TEAM_ID and drop the quarantine postflight from the cask below.
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: Hose ${{ github.ref_name }}
