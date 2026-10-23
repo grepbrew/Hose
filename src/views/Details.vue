@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watchEffect } from "vue";
 import { getGpus, getDatacenterName, getDataCenters, podUrl } from "../api";
-import { spendTotals, snapshotOf, diskGb, fitDisk, placeName, duration, ago, usd, offText, allDay, volumePerMo, VLLM_IMAGE, type Cloud, type Config, type Pod } from "../cost";
+import { spendTotals, snapshotOf, diskGb, fitDisk, placeName, duration, ago, usd, offText, allDay, volumePerMo, VLLM_IMAGE, seesImages, type Cloud, type Config, type Pod } from "../cost";
 import type { Fleet } from "../fleet";
 import Icon from "./Icon.vue";
 
@@ -200,6 +200,7 @@ const copy = (r: { what: string; value: string }) =>
           </button>
         </div>
         <p class="muted tiny">Works with any OpenAI-compatible app. The address changes each time you turn it on. Anyone with the key can use the model while it's on, and their requests keep it on.</p>
+        <p v-if="seesImages(config!)" class="muted tiny">Takes images too: send them as <code>image_url</code> parts, like OpenAI's vision API.</p>
       </section>
 
       <section class="sec">

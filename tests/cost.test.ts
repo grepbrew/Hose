@@ -40,6 +40,8 @@ import {
   thinks,
   filterModels,
   newConfig,
+  seesImages,
+  type Model,
   type Config,
   type DataCenter,
   type Gpu,
@@ -118,10 +120,10 @@ describe("parseHfModel", () => {
   });
 
   it("image-text-to-text", () => {
-    // Qwen3.5/3.8 and Gemma 4 are tagged image-text-to-text; Hose uses them for text chat
+    // Qwen3.5/3.8 and Gemma 4 are tagged image-text-to-text: they chat and read images
     const r = parseHfModel(info({ pipeline_tag: "image-text-to-text", safetensors: { parameters: { BF16: 9e9 } } }), true);
 
-    expect(r).toEqual({ ok: true, model: { id: "org/m", params: { BF16: 9e9 } } });
+    expect(r).toEqual({ ok: true, model: { id: "org/m", params: { BF16: 9e9 }, vision: true } });
   });
 });
 
@@ -454,7 +456,7 @@ describe("recommend", () => {
 
 describe("QUICK", () => {
   it("valid", () => {
-    expect(QUICK.map((q) => q.purpose)).toEqual(["Everyday questions", "Writing & email", "Hard problems", "Coding", "Fast & cheap"]);
+    expect(QUICK.map((q) => q.purpose)).toEqual(["Everyday questions", "Read photos & documents", "Writing & email", "Hard problems", "Coding", "Fast & cheap"]);
     expect(QUICK.every((q) => PRESETS.some((p) => p.id === q.id))).toBe(true);
     expect(QUICK.filter((q) => q.think).map((q) => q.purpose)).toEqual(["Hard problems"]);
   });
@@ -490,7 +492,7 @@ describe("filterModels", () => {
     { id: "meta-llama/Gated", params: { BF16: 8e9 }, gated: "manual", thinks: false, price: 0.59 },
     { id: "Qwen/Huge", params: { BF16: 400e9 }, gated: false, thinks: false, price: null },
   ];
-  const ANY: ModelFilter = { size: "", maxPrice: 0, maker: "", thinking: false, hideGated: false, sort: "used" };
+  const ANY: ModelFilter = { size: "", maxPrice: 0, maker: "", thinking: false, images: false, hideGated: false, sort: "used" };
   const names = (f: Partial<ModelFilter>) => filterModels(rows, { ...ANY, ...f }).map((r) => r.id.split("/")[1]);
 
   it.each<[string, Partial<ModelFilter>, string[]]>([
@@ -693,5 +695,23 @@ describe("initialSelection", () => {
     ["nothing running -> new", null, [b], { kind: "new" }],
   ])("%s", (_, stored, configs, want) => {
     expect(initialSelection(stored, configs, pods)).toEqual(want);
+  });
+});
+
+describe("vision", () => {
+  it.each<[string, Model, boolean]>([
+    ["preset saved before the flag", { id: "Qwen/Qwen3.5-9B", params: {} }, true],
+    ["text model", { id: "Qwen/Qwen3-8B", params: {} }, false],
+    ["flagged from Hugging Face", { id: "x/y", params: {}, vision: true }, true],
+  ])("seesImages: %s", (_, m, want) => {
+    expect(seesImages(m)).toBe(want);
+  });
+
+  it("filter", () => {
+    const rows = PRESETS.map((p) => ({ ...p, price: 1 }));
+
+    const shown = filterModels(rows, { size: "", maxPrice: 0, maker: "", thinking: false, images: true, hideGated: false, sort: "" });
+
+    expect(shown.map((r) => r.label)).toEqual(["Qwen3.5-4B", "Qwen3.5-9B", "Qwen3.8-27B", "Gemma-4-26B-A4B"]);
   });
 });

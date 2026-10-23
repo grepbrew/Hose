@@ -52,10 +52,14 @@ export function seed(name: string | null) {
   state.lastChat = null;
   state.served = 0;
   state.soldOut = name === "soldOut";
-  if (name === "presetOff") state.volumes.push({ id: "vol1", name: "hose-qwen3-5-9b", size: 30, dataCenter: "US-TX-3", type: "STANDARD" });
+  if (name === "presetOff" || name === "seeOn") state.volumes.push({ id: "vol1", name: "hose-qwen3-5-9b", size: 30, dataCenter: "US-TX-3", type: "STANDARD" });
   if (name === "stored" || name === "storedOn") state.volumes.push({ id: "vol1", name: "hose-qwen3-8b", size: 25, dataCenter: "US-TX-3", type: "STANDARD" });
   if (name === "on" || name === "two" || name === "storedOn") {
     state.pods.push(pod("pod1", "hose-qwen3-8b", "NVIDIA RTX 4090", 0.89, 21));
+    state.checks.pod1 = 1;
+  }
+  if (name === "seeOn") {
+    state.pods.push(pod("pod1", "hose-qwen3-5-9b", "NVIDIA A40", 0.59, 21));
     state.checks.pod1 = 1;
   }
   if (name === "stuck") {
@@ -147,6 +151,9 @@ const SSE = [
 // user sends "md": a markdown reply (bold, list, code, math), then the usual stop + usage
 const MD = "**Bold text** and a list:\n\n- one\n- two\n\n```ts\nconst a = 1\n```\n\nArea is $x^2$.";
 const SSE_MD = [`data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: MD } }] })}\n\n`, ...SSE.slice(2)];
+
+// the last message carries images (OpenAI image_url parts): say how many arrived
+const SSE_SEEN = (n: number) => [`data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: `I see ${n} image${n > 1 ? "s" : ""}.` } }] })}\n\n`, ...SSE.slice(2)];
 
 const SSE_THINK = [
   'data: {"choices":[{"index":0,"delta":{"content":"The user says hi."}}]}\n\n',
@@ -264,7 +271,9 @@ export const handlers = [
     if (id === "broken") return new HttpResponse("Internal Server Error", { status: 500 });
     // pod "mute": vLLM finishes without a word (stop + usage + [DONE] only)
     if (id === "mute") return sse(SSE.slice(2));
-    if (state.lastChat.messages.at(-1)?.content === "md") return sse(SSE_MD);
+    const last = state.lastChat.messages.at(-1)?.content;
+    if (last === "md") return sse(SSE_MD);
+    if (Array.isArray(last)) return sse(SSE_SEEN(last.filter((p: { type: string }) => p.type === "image_url").length));
     return sse(state.lastChat.chat_template_kwargs?.enable_thinking ? SSE_THINK : SSE);
   }),
   http.get("https://*.proxy.runpod.net/metrics", () => HttpResponse.text(metrics(state.served))),

@@ -4,6 +4,7 @@ import { getGpus, getDataCenters, hfSearch, hfModelInfo, hfCanDownload, type HfH
 import {
   PRESETS,
   parseHfModel,
+  seesImages,
   label,
   billions,
   gpuCards,
@@ -69,7 +70,7 @@ const locked = (gated: unknown) => !!gated && !props.hfToken;
 const GATED = "This model is gated. Add a Hugging Face token under Settings › Keys first.";
 const WHY: Record<HfReject, string> = {
   gated: GATED,
-  "not-chat": "That's not a chat model. Hose runs text chat models only.",
+  "not-chat": "That's not a chat model. Hose runs chat models only.",
   "no-weights": "That model has no safetensors weights, so Hose can't size or run it.",
   "no-template": "That model has no chat template (likely a base model). Pick its Instruct or chat version.",
 };
@@ -79,7 +80,7 @@ async function choose(m: Model, gated: unknown) {
   if (locked(gated)) return void (error.value = GATED);
   if (gated && !(await hfCanDownload(m.id, props.hfToken)))
     return void (error.value = `Accept the licence on huggingface.co/${m.id} with your Hugging Face account, then pick it again.`);
-  model.value = { id: m.id, params: m.params };
+  model.value = { id: m.id, params: m.params, vision: m.vision };
   gpu.value = null; // the picker picks this model's recommended GPU
   name.value = null;
   disk.value = null;
@@ -89,7 +90,7 @@ function customize(p: Model & { gated?: boolean }) {
   void choose(p, p.gated);
 }
 
-const filter = ref<ModelFilter>({ size: "", maxPrice: 0, maker: "", thinking: false, hideGated: false, sort: "downloads" });
+const filter = ref<ModelFilter>({ size: "", maxPrice: 0, maker: "", thinking: false, images: false, hideGated: false, sort: "downloads" });
 const query = ref("");
 const results = ref<HfHit[]>([]);
 const searching = ref(false);
@@ -235,6 +236,7 @@ async function save(turnOn: boolean) {
               <option v-for="[id, text] in SORTS" :key="id" :value="id">{{ text }}</option>
             </select>
             <button class="toggle" type="button" :aria-pressed="filter.thinking" @click="filter.thinking = !filter.thinking"><Icon name="brain" :size="14" /> Thinking models</button>
+            <button class="toggle" type="button" :aria-pressed="filter.images" @click="filter.images = !filter.images"><Icon name="scan" :size="14" /> Reads images</button>
             <button class="toggle" type="button" :aria-pressed="filter.hideGated" @click="filter.hideGated = !filter.hideGated">Hide ones that need a token</button>
           </div>
 
@@ -249,6 +251,7 @@ async function save(turnOn: boolean) {
               <span class="id">
                 <span class="ellipsis">{{ r.label }}</span>
                 <span v-if="r.thinks" class="pill dim" title="Can think step by step before answering">thinks</span>
+                <span v-if="seesImages(r)" class="pill dim" title="Can read photos, screenshots and PDFs">reads images</span>
                 <span v-if="r.gated" class="pill dim" title="Needs a Hugging Face token"><Icon name="lock" :size="10" /> token</span>
               </span>
               <span class="muted">{{ maker(r.id) }}</span>

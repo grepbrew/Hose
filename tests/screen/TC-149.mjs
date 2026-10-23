@@ -21,7 +21,7 @@ await page.waitForSelector("text=No GPU free right now on RunPod", { state: "vis
 const starts = await page.evaluate(() => [...document.querySelectorAll("button[aria-label^='Start ']")].map((b) => b.disabled));
 const snap = await page.snapshot({ scope: "full_page" });
 console.log(`${TC}: Start buttons disabled = ${starts.join(",")}`);
-const ok = snap.includes("No GPU free right now") && starts.length === 5 && starts.every(Boolean);
+const ok = snap.includes("No GPU free right now") && starts.length === 6 && starts.every(Boolean);
 console.log(`${TC}: ${ok ? "PASS" : "FAIL"}`);
 
 try {

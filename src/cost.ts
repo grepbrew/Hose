@@ -45,30 +45,31 @@ export function placeName(location: string, dcs: DataCenter[]) {
   return country ? `${country} (${location})` : location;
 }
 
-export type Model = { id: string; params: Record<string, number> };
+export type Model = { id: string; params: Record<string, number>; vision?: boolean }; // vision: reads images (HF image-text-to-text)
 
 export type Preset = Model & { label: string; blurb: string; tag: string; thinks: boolean; gated?: boolean; active?: number };
 
 // Locked on the signed-off mockup (2026-10-22; Coder added for the quick start 2026-10-23). Params from the HF API;
 // vLLM v0.32.0 registers every architecture here. thinks = thinks() on each repo's chat template (2026-10-23).
 // active = parameters each token reads, for a mixture-of-experts repo whose name doesn't say it (activeGb).
-// Qwen3.5/3.8 and Gemma 4 are image-text-to-text models; Hose only sends them text.
+// vision = HF tags it image-text-to-text (2026-10-23): it reads photos, screenshots and PDF pages too.
 export const PRESETS: Preset[] = [
-  { label: "Qwen3.5-4B", blurb: "Quick everyday answers", tag: "Qwen · new", thinks: true, id: "Qwen/Qwen3.5-4B", params: { BF16: 4659861248, F32: 3840 } },
+  { label: "Qwen3.5-4B", blurb: "Quick everyday answers", tag: "Qwen · new", thinks: true, vision: true, id: "Qwen/Qwen3.5-4B", params: { BF16: 4659861248, F32: 3840 } },
   { label: "Qwen3-4B-Instruct", blurb: "Fast, text only", tag: "Qwen", thinks: false, id: "Qwen/Qwen3-4B-Instruct-2507", params: { BF16: 4022468096 } },
   { label: "Phi-4-mini", blurb: "Small, good at reasoning", tag: "Microsoft", thinks: false, id: "microsoft/Phi-4-mini-instruct", params: { BF16: 3836021760 } },
-  { label: "Qwen3.5-9B", blurb: "Good all-rounder for writing and reasoning", tag: "Qwen · new", thinks: true, id: "Qwen/Qwen3.5-9B", params: { BF16: 9653100528, F32: 3840 } },
+  { label: "Qwen3.5-9B", blurb: "Good all-rounder for writing and reasoning", tag: "Qwen · new", thinks: true, vision: true, id: "Qwen/Qwen3.5-9B", params: { BF16: 9653100528, F32: 3840 } },
   { label: "Llama-3.1-8B", blurb: "Meta's popular 8B", tag: "Meta", thinks: false, id: "meta-llama/Llama-3.1-8B-Instruct", params: { BF16: 8030261248 }, gated: true },
   { label: "Granite-4.2-8B", blurb: "Clear, businesslike writing", tag: "IBM · new", thinks: true, id: "ibm-granite/granite-4.2-8b", params: { BF16: 8791592960 } },
-  { label: "Qwen3.8-27B", blurb: "Strongest that fits one GPU", tag: "Qwen · new", thinks: true, id: "Qwen/Qwen3.8-27B", params: { BF16: 27781427952 } },
-  { label: "Gemma-4-26B-A4B", blurb: "Fast for its size", tag: "Google · new", thinks: true, id: "google/gemma-4-26B-A4B-it", params: { BF16: 25805936206 } },
+  { label: "Qwen3.8-27B", blurb: "Strongest that fits one GPU", tag: "Qwen · new", thinks: true, vision: true, id: "Qwen/Qwen3.8-27B", params: { BF16: 27781427952 } },
+  { label: "Gemma-4-26B-A4B", blurb: "Fast for its size", tag: "Google · new", thinks: true, vision: true, id: "google/gemma-4-26B-A4B-it", params: { BF16: 25805936206 } },
   { label: "gpt-oss-20b", blurb: "OpenAI's open model", tag: "OpenAI", thinks: true, active: 3.6e9, id: "openai/gpt-oss-20b", params: { BF16: 1804459584, U8: 19110297600 } },
   { label: "Qwen3-Coder-30B", blurb: "Writes and fixes code", tag: "Qwen", thinks: false, id: "Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8", params: { BF16: 636948480, F8_E4M3: 29896998912 } },
 ];
 
 /** New pod's quick start: one card per job, each a preset started in one click on the GPU Hose recommends. */
-export const QUICK: { purpose: string; blurb: string; icon: "chat-circle-dots" | "pen-nib" | "brain" | "code" | "lightning"; id: string; think?: boolean }[] = [
+export const QUICK: { purpose: string; blurb: string; icon: "chat-circle-dots" | "scan" | "pen-nib" | "brain" | "code" | "lightning"; id: string; think?: boolean }[] = [
   { purpose: "Everyday questions", blurb: "Ask anything: plan a trip, explain a letter, compare two options.", icon: "chat-circle-dots", id: "Qwen/Qwen3.5-9B" },
+  { purpose: "Read photos & documents", blurb: "Drop in a photo, screenshot or PDF. It reads out the text, tables too.", icon: "scan", id: "Qwen/Qwen3.5-9B" },
   { purpose: "Writing & email", blurb: "Drafts, rewrites and replies in a clear, friendly tone.", icon: "pen-nib", id: "ibm-granite/granite-4.2-8b" },
   { purpose: "Hard problems", blurb: "Thinks step by step before it answers. Slower, more careful.", icon: "brain", id: "Qwen/Qwen3.8-27B", think: true },
   { purpose: "Coding", blurb: "Writes, explains and fixes code in most languages.", icon: "code", id: "Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8" },
@@ -77,6 +78,9 @@ export const QUICK: { purpose: string; blurb: string; icon: "chat-circle-dots" |
 
 /** Short display name: the curated label, else the repo name. */
 export const label = (id: string) => PRESETS.find((p) => p.id === id)?.label ?? id.split("/").pop()!;
+
+/** The model reads images. Configs saved before the flag existed fall back to the preset's. */
+export const seesImages = (m: Model) => m.vision ?? !!PRESETS.find((p) => p.id === m.id)?.vision;
 
 // ponytail: F32 counted as 2 bytes because vLLM loads weights in bf16 by default.
 // U8/I8 counted as 1 byte, so packed 4-bit weights (gpt-oss MXFP4) are over-estimated: safe side.
@@ -196,7 +200,7 @@ export type HfInfo = {
   config?: { tokenizer_config?: { chat_template?: unknown }; chat_template_jinja?: string };
 };
 
-/** HF pipeline tags Hose can chat with. image-text-to-text models (Qwen3.5, Gemma 4) take plain text too. */
+/** HF pipeline tags Hose can chat with. image-text-to-text models (Qwen3.5, Gemma 4) take text, images or both. */
 export const CHAT_TAGS = ["text-generation", "image-text-to-text"];
 
 /** The chat template has a thinking switch: enable_thinking (Qwen3, Granite, Gemma 4), <think> (DeepSeek-R1), reasoning_effort (gpt-oss). */
@@ -210,7 +214,7 @@ export function sizeBand(params: Record<string, number>): "S" | "M" | "L" {
 }
 
 /** maxPrice 0 = any; maker = the Hugging Face owner ("" = any); sort "cheap" re-sorts, other sorts keep the rows' order. */
-export type ModelFilter = { size: "" | "S" | "M" | "L"; maxPrice: number; maker: string; thinking: boolean; hideGated: boolean; sort: string };
+export type ModelFilter = { size: "" | "S" | "M" | "L"; maxPrice: number; maker: string; thinking: boolean; images: boolean; hideGated: boolean; sort: string };
 
 /** The model list under the filters. price = $/hr on the model's recommended GPU, null = no GPU can run it. */
 export function filterModels<R extends Model & { gated?: unknown; thinks?: boolean; price: number | null }>(rows: R[], f: ModelFilter) {
@@ -219,6 +223,7 @@ export function filterModels<R extends Model & { gated?: unknown; thinks?: boole
     (!f.maxPrice || (r.price != null && r.price <= f.maxPrice)) &&
     (!f.maker || r.id.split("/")[0] === f.maker) &&
     (!f.thinking || !!r.thinks) &&
+    (!f.images || seesImages(r)) &&
     (!f.hideGated || !r.gated);
   const price = (r: R) => r.price ?? Infinity;
   return rows.filter(ok).sort((a, b) => (f.sort === "cheap" && price(a) !== price(b) ? price(a) - price(b) : 0));
@@ -232,7 +237,8 @@ export function parseHfModel(info: HfInfo, hasToken: boolean): { ok: true; model
   if (!info.safetensors) return { ok: false, reason: "no-weights" };
   // base models carry no chat template; vLLM's /v1/chat/completions refuses them
   if (!info.config?.tokenizer_config?.chat_template && !info.config?.chat_template_jinja) return { ok: false, reason: "no-template" };
-  return { ok: true, model: { id: info.id, params: info.safetensors.parameters } };
+  const vision = info.pipeline_tag === "image-text-to-text";
+  return { ok: true, model: { id: info.id, params: info.safetensors.parameters, ...(vision ? { vision } : {}) } };
 }
 
 // CUDA 13.0 build. The -cu129 tag crash-loops: its torchcodec wants libnvrtc.so.13 (spike 2026-10-22).
@@ -436,6 +442,7 @@ export const newConfig = (m: Model, g: GpuCard, over: Partial<Config> = {}): Con
   name: `${label(m.id)} · ${g.name}`,
   id: m.id,
   params: m.params,
+  vision: m.vision,
   gpuId: g.id,
   gpuName: g.name,
   cloud: "SECURE",

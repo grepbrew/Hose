@@ -136,28 +136,34 @@ export async function podLoad(id: string, apiKey: string) {
   }
 }
 
-export type Message = { role: "user" | "assistant"; content: string; thinking?: string; stats?: string };
+export type Message = { role: "user" | "assistant"; content: string; images?: string[]; thinking?: string; stats?: string }; // images: data URLs
 export type Reply = { content: string; thinking: string; stats: string };
 
 /** Streams the reply; onReply gets the whole reply so far after every chunk. Resolves with the full reply and its stats. */
 export async function chatStream(id: string, apiKey: string, model: string, messages: Message[], think: boolean, onReply: (r: Reply) => void) {
   const start = performance.now();
+  const seeing = messages.some((m) => m.images?.length);
   const res = await http(`${podUrl(id)}/v1/chat/completions`, {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({
       model,
-      messages: messages.map(({ role, content }) => ({ role, content })), // thinking and stats stay on this Mac
+      // thinking and stats stay on this Mac; images go as OpenAI-style image_url parts
+      messages: messages.map(({ role, content, images }) => ({
+        role,
+        content: images?.length ? [{ type: "text", text: content }, ...images.map((url) => ({ type: "image_url", image_url: { url } }))] : content,
+      })),
       stream: true,
       stream_options: { include_usage: true },
-      // thinking runs to thousands of tokens: no cap then, vLLM allows what's left of the context
-      ...(think ? {} : { max_tokens: 1024 }),
+      // thinking, or a page read out, runs to thousands of tokens: no cap then, vLLM allows what's left of the context
+      ...(think || seeing ? {} : { max_tokens: 1024 }),
       temperature: 0.7,
       // models without a thinking mode ignore it; gpt-oss always reasons and sends it in a separate field
       chat_template_kwargs: { enable_thinking: think },
     }),
   });
-  if (!res.ok || !res.body) throw new Error(`The model answered with error ${res.status}`);
+  // vLLM's message says why, e.g. too many images or pages for the model's context
+  if (!res.ok || !res.body) throw new Error(`The model answered with error ${res.status}: ${(await res.text()).slice(0, 200)}`);
   const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
   let raw = "";
   let first = 0;
@@ -194,7 +200,7 @@ export async function hfModelInfo(id: string, token: string): Promise<HfInfo> {
   return { ...(await res.json()), id };
 }
 
-export type HfHit = { id: string; params: Record<string, number>; downloads: number; gated: boolean | string; thinks: boolean };
+export type HfHit = { id: string; params: Record<string, number>; downloads: number; gated: boolean | string; thinks: boolean; vision?: boolean };
 
 /**
  * Chat models matching q, by one owner if author is set, in HF's order for sort (downloads | trendingScore | createdAt,
@@ -207,9 +213,11 @@ export async function hfSearch(q: string, token: string, { author = "", sort = "
   if (!res.ok) throw new Error(`Hugging Face error ${res.status}`);
   const all: (HfInfo & { downloads: number })[] = await res.json();
   return all
-    .filter((m) => parseHfModel(m, true).ok) // gated hits stay listed; choose() asks for the token
-    .slice(0, 12)
-    .map((m) => ({ id: m.id, params: m.safetensors!.parameters, downloads: m.downloads, gated: m.gated ?? false, thinks: thinks(m) }));
+    .flatMap((m) => {
+      const r = parseHfModel(m, true); // gated hits stay listed; choose() asks for the token
+      return r.ok ? [{ ...r.model, downloads: m.downloads, gated: m.gated ?? false, thinks: thinks(m) }] : [];
+    })
+    .slice(0, 12);
 }
 
 // Gated models: the token must belong to someone who accepted the licence on the model page.

@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { ref, computed, nextTick, onMounted, watch } from "vue";
 import { chatStream, podLogs, type LogLine } from "../api";
-import { label, stuckBoot, type Config } from "../cost";
+import { label, stuckBoot, seesImages, type Config } from "../cost";
 import type { Fleet } from "../fleet";
 import { md } from "../markdown";
+import { toImages, MAX_IMAGES } from "../images";
+import Icon from "./Icon.vue";
 
 const props = defineProps<{ apiKey: string; vllmKey: string; config: Config; fleet: Fleet }>();
 const emit = defineEmits<{ retry: [] }>();
@@ -55,19 +57,68 @@ watch(
 const pod = computed(() => props.fleet.podOf(props.config));
 const stuck = computed(() => state.value === "Starting" && stuckBoot(pod.value?.createdAt, props.fleet.s.now, logs.value.length));
 
-// ponytail: keep the last 20 turns so long chats stay inside the model's context; token-count trimming if that bites
+// ponytail: keep the last 20 turns so long chats stay inside the model's context; token-count trimming if that bites.
+// Images in those turns are sent again each time; drop old ones if long picture chats overflow it.
 const HISTORY = 20;
 
+// Photos, screenshots and PDF pages waiting to go with the next message, for a model that reads images
+const vision = computed(() => seesImages(props.config));
+const pending = ref<string[]>([]);
+const attaching = ref(false);
+const note = ref("");
+const fileEl = ref<HTMLInputElement>();
+// sent when there are images and no words: what people attach a page for
+const READ = "Read out all the text in this image. Keep its layout, using Markdown for headings, lists and tables.";
+
+async function attach(files: File[]) {
+  files = files.filter((f) => f.type.startsWith("image/") || f.type === "application/pdf");
+  if (!files.length) return;
+  error.value = note.value = "";
+  if (!vision.value) return void (error.value = `${label(props.config.id)} can't read images. Pick a model marked “reads images” in New pod.`);
+  attaching.value = true;
+  let more = false;
+  try {
+    for (const f of files) {
+      const room = MAX_IMAGES - pending.value.length;
+      if (room <= 0) {
+        more = true;
+        break;
+      }
+      const r = await toImages(f, room);
+      pending.value.push(...r.images);
+      more ||= r.more;
+    }
+  } catch {
+    error.value = "Couldn't open that file. Try a PNG, JPEG or PDF.";
+  } finally {
+    attaching.value = false;
+  }
+  if (more) note.value = `Only the first ${MAX_IMAGES} images or pages go in one message.`;
+}
+const picked = (e: Event) => {
+  const input = e.target as HTMLInputElement;
+  void attach([...(input.files ?? [])]);
+  input.value = ""; // the same file can be picked again
+};
+// a screenshot pastes as a file with no text; anything with text stays a text paste
+const onPaste = (e: ClipboardEvent) => {
+  const files = [...(e.clipboardData?.files ?? [])];
+  if (!files.length || e.clipboardData!.getData("text/plain")) return;
+  e.preventDefault();
+  void attach(files);
+};
+const onDrop = (e: DragEvent) => void attach([...(e.dataTransfer?.files ?? [])]);
+
 async function send() {
-  const text = draft.value.trim();
+  const text = draft.value.trim() || (pending.value.length ? READ : "");
   const podId = props.config.podId;
-  if (!text || busy.value || !podId || state.value !== "On") return;
+  if (!text || busy.value || attaching.value || !podId || state.value !== "On") return;
   const msgs = messages.value;
   draft.value = "";
-  error.value = "";
+  error.value = note.value = "";
   busy.value = true;
   props.fleet.s.answering = podId;
-  msgs.push({ role: "user", content: text });
+  msgs.push({ role: "user", content: text, ...(pending.value.length ? { images: pending.value.splice(0) } : {}) });
   const history = msgs.slice(-HISTORY);
   msgs.push({ role: "assistant", content: "" });
   const reply = msgs[msgs.length - 1];
@@ -105,7 +156,7 @@ const onEnter = (e: KeyboardEvent) => {
 </script>
 
 <template>
-  <section class="chat" aria-label="Chat">
+  <section class="chat" aria-label="Chat" @dragover.prevent @drop.prevent="onDrop">
     <!-- aria-live off: hundreds of "Extracting" lines would flood a screen reader; the status note says what's happening -->
     <ol v-if="state === 'Starting'" ref="logEl" class="log" role="log" aria-label="Startup log" aria-live="off">
       <li v-if="stuck" class="wait stuck">
@@ -116,13 +167,18 @@ const onEnter = (e: KeyboardEvent) => {
       <li v-for="(l, i) in logs" :key="i" :class="l.source"><time :datetime="l.ts">{{ hms(l.ts) }}</time>{{ l.line }}</li>
     </ol>
     <TransitionGroup v-else ref="list" tag="ol" name="msg" class="messages" aria-live="polite">
-      <li v-if="!messages.length" key="hello" class="empty muted">Say hello to {{ label(config.id) }}.</li>
+      <li v-if="!messages.length" key="hello" class="empty muted">
+        Say hello to {{ label(config.id) }}{{ vision ? ", or drop in a photo or PDF to read its text" : "" }}.
+      </li>
       <li v-for="(m, i) in messages" :key="i" :class="m.role" @click="copy">
         <details v-if="m.thinking" class="think" :open="!m.content">
           <summary>{{ m.content ? "Thought" : "Thinking…" }}</summary>
           <div class="md" v-html="md(m.thinking)" />
         </details>
-        <span v-if="m.role === 'user'">{{ m.content }}</span>
+        <template v-if="m.role === 'user'">
+          <span v-if="m.images" class="shots"><img v-for="(src, j) in m.images" :key="j" :src="src" :alt="`Image ${j + 1}`" /></span>
+          <span>{{ m.content }}</span>
+        </template>
         <div v-else-if="m.content" class="md" v-html="md(m.content)" />
         <span v-else-if="!m.thinking">…</span>
         <small v-if="m.stats" class="stats">{{ m.stats }}</small>
@@ -134,17 +190,34 @@ const onEnter = (e: KeyboardEvent) => {
     </ol>
     <p v-if="state === 'Starting'" class="note muted">Still downloading and loading the model, 2–5 min. Chat opens up when it's on.</p>
     <p v-if="error" class="note error" role="alert">{{ error }}</p>
+    <p v-if="note" class="note muted" role="status">{{ note }}</p>
     <form class="composer" @submit.prevent="send">
       <div class="grow">
+        <ul v-if="pending.length || attaching" class="attached" aria-label="Attached images">
+          <li v-for="(src, i) in pending" :key="i">
+            <img :src="src" :alt="`Image ${i + 1}`" />
+            <button type="button" :aria-label="`Remove image ${i + 1}`" @click="pending.splice(i, 1)"><Icon name="x" :size="10" /></button>
+          </li>
+          <li v-if="attaching" class="muted reading">Reading…</li>
+        </ul>
         <textarea
           v-model="draft"
           aria-label="Message"
-          :placeholder="state === 'Starting' ? 'Chat opens when the model is ready…' : `Message ${label(config.id)}…`"
+          :placeholder="
+            state === 'Starting' ? 'Chat opens when the model is ready…' : pending.length ? 'Ask about it, or Send to read out its text…' : `Message ${label(config.id)}…`
+          "
           :disabled="state === 'Starting'"
           rows="2"
           @keydown.enter.exact="onEnter"
+          @paste="onPaste"
         />
         <div class="opts">
+          <template v-if="vision">
+            <button class="opt attach" type="button" aria-label="Attach image or PDF" title="A photo, screenshot or PDF. You can also paste or drop one." @click="fileEl?.click()">
+              <Icon name="paperclip" :size="13" />Attach
+            </button>
+            <input ref="fileEl" type="file" accept="image/*,application/pdf" multiple hidden @change="picked" />
+          </template>
           <label class="opt"><input v-model="config.think" type="checkbox" />Think first</label>
           <span class="kbd muted">Enter sends · Shift+Enter adds a line</span>
           <button v-if="state !== 'Starting'" class="link" type="button" :aria-pressed="!!config.log" @click="config.log = !config.log">
@@ -152,7 +225,7 @@ const onEnter = (e: KeyboardEvent) => {
           </button>
         </div>
       </div>
-      <button class="btn primary" :disabled="busy || !draft.trim() || state !== 'On'">Send</button>
+      <button class="btn primary" :disabled="busy || attaching || (!draft.trim() && !pending.length) || state !== 'On'">Send</button>
     </form>
   </section>
 </template>
@@ -299,6 +372,66 @@ textarea:disabled {
 }
 .opt input {
   margin: 0;
+}
+.attach {
+  font: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+}
+.attach:hover {
+  color: var(--ink);
+}
+/* images waiting to send, and the ones sent in a bubble */
+.attached {
+  list-style: none;
+  margin: 0 0 4px;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.attached li {
+  position: relative;
+}
+.attached img {
+  display: block;
+  height: 56px;
+  max-width: 120px;
+  object-fit: cover;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.attached button {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  cursor: pointer;
+}
+.reading {
+  align-self: center;
+  font-size: 11px;
+}
+.shots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.shots img {
+  display: block;
+  max-height: 140px;
+  max-width: 100%;
+  border-radius: 8px;
 }
 .link {
   margin-left: auto;

@@ -73,9 +73,19 @@ describe("chatStream", () => {
 
   it.each([
     ["mute", "The model sent back an empty reply"],
-    ["broken", "The model answered with error 500"],
+    ["broken", "The model answered with error 500: Internal Server Error"],
   ])("%s rejects", async (id, msg) => {
     await expect(chatStream(id, "k1", "Qwen/Qwen3-8B", [{ role: "user", content: "hi" }], false, () => {})).rejects.toThrow(msg);
+  });
+
+  it("images", async () => {
+    const url = "data:image/jpeg;base64,AA";
+
+    const reply = await chatStream("pod1", "k1", "Qwen/Qwen3.5-9B", [{ role: "user", content: "read", images: [url] }], false, () => {});
+
+    expect(state.lastChat!.messages[0].content).toEqual([{ type: "text", text: "read" }, { type: "image_url", image_url: { url } }]);
+    expect("max_tokens" in state.lastChat!).toBe(false); // a page read out runs past 1024 tokens
+    expect(reply.content).toBe("I see 1 image.");
   });
 });
 
