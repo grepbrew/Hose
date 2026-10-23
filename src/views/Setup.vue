@@ -11,6 +11,8 @@ const runpodKey = ref(props.keys.runpod);
 const hfToken = ref(props.keys.hf);
 const error = ref("");
 const saving = ref(false);
+const showKey = ref(false);
+const showHf = ref(false);
 
 async function save() {
   error.value = "";
@@ -40,12 +42,18 @@ async function save() {
         <div class="fieldset">
           <label for="runpod-key">RunPod API key</label>
           <span id="runpod-key-hint" class="hint">On runpod.io, open Settings, then API Keys, and create a key with read and write access.</span>
-          <input id="runpod-key" v-model="runpodKey" class="field secret" aria-describedby="runpod-key-hint" autocomplete="off" spellcheck="false" required />
+          <div class="reveal">
+            <input id="runpod-key" v-model="runpodKey" :class="['field', { secret: !showKey }]" aria-describedby="runpod-key-hint" autocomplete="off" spellcheck="false" required />
+            <button type="button" class="btn quiet" :aria-label="`${showKey ? 'Hide' : 'Show'} RunPod API key`" @click="showKey = !showKey">{{ showKey ? "Hide" : "Show" }}</button>
+          </div>
         </div>
         <div class="fieldset">
           <label for="hf-token">Hugging Face token</label>
           <span id="hf-token-hint" class="hint">Optional. Only needed for gated models such as Llama. Create one at huggingface.co/settings/tokens.</span>
-          <input id="hf-token" v-model="hfToken" class="field secret" aria-describedby="hf-token-hint" autocomplete="off" spellcheck="false" />
+          <div class="reveal">
+            <input id="hf-token" v-model="hfToken" :class="['field', { secret: !showHf }]" aria-describedby="hf-token-hint" autocomplete="off" spellcheck="false" />
+            <button type="button" class="btn quiet" :aria-label="`${showHf ? 'Hide' : 'Show'} Hugging Face token`" @click="showHf = !showHf">{{ showHf ? "Hide" : "Show" }}</button>
+          </div>
         </div>
         <p v-if="error" class="error" role="alert">{{ error }}. Check the key and try again.</p>
         <div class="actions">
@@ -67,12 +75,18 @@ async function save() {
       <div class="fieldset">
         <label for="runpod-key">RunPod API key</label>
         <span id="runpod-key-hint" class="hint">On runpod.io, open Settings, then API Keys, and create a key with read and write access.</span>
-        <input id="runpod-key" v-model="runpodKey" class="field secret" aria-describedby="runpod-key-hint" autocomplete="off" spellcheck="false" required />
+        <div class="reveal">
+          <input id="runpod-key" v-model="runpodKey" :class="['field', { secret: !showKey }]" aria-describedby="runpod-key-hint" autocomplete="off" spellcheck="false" required />
+          <button type="button" class="btn quiet" :aria-label="`${showKey ? 'Hide' : 'Show'} RunPod API key`" @click="showKey = !showKey">{{ showKey ? "Hide" : "Show" }}</button>
+        </div>
       </div>
       <div class="fieldset">
         <label for="hf-token">Hugging Face token <span class="opt">(optional)</span></label>
         <span id="hf-token-hint" class="hint">Only needed for gated models such as Llama.</span>
-        <input id="hf-token" v-model="hfToken" class="field secret" aria-describedby="hf-token-hint" autocomplete="off" spellcheck="false" />
+        <div class="reveal">
+          <input id="hf-token" v-model="hfToken" :class="['field', { secret: !showHf }]" aria-describedby="hf-token-hint" autocomplete="off" spellcheck="false" />
+          <button type="button" class="btn quiet" :aria-label="`${showHf ? 'Hide' : 'Show'} Hugging Face token`" @click="showHf = !showHf">{{ showHf ? "Hide" : "Show" }}</button>
+        </div>
       </div>
       <p v-if="error" class="error" role="alert">{{ error }}. Check the key and try again.</p>
       <button class="btn primary big wide" :disabled="saving || !runpodKey.trim()">{{ saving ? "Checking…" : "Save and continue" }}</button>
@@ -128,6 +142,18 @@ async function save() {
 .fieldset label {
   font-size: 12.5px;
   font-weight: 600;
+}
+.reveal {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.reveal .field {
+  flex: 1;
+  min-width: 0;
+}
+.reveal .btn {
+  width: 60px; /* Show and Hide differ in width; keep the field still */
 }
 .hint {
   font-size: 11.5px;
