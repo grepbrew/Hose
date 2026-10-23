@@ -3,6 +3,7 @@ import { ref, computed, nextTick, onMounted, watch } from "vue";
 import { chatStream, podLogs, type LogLine } from "../api";
 import { label, stuckBoot, type Config } from "../cost";
 import type { Fleet } from "../fleet";
+import { md } from "../markdown";
 
 const props = defineProps<{ apiKey: string; vllmKey: string; config: Config; fleet: Fleet }>();
 const emit = defineEmits<{ retry: [] }>();
@@ -86,6 +87,15 @@ async function send() {
   }
 }
 
+// Copy button on a code block in a reply (markdown.ts puts it right before the <pre>)
+const copy = (e: MouseEvent) => {
+  const btn = (e.target as Element).closest(".copy");
+  if (!btn) return;
+  navigator.clipboard.writeText(btn.nextElementSibling?.textContent ?? "");
+  btn.textContent = "Copied";
+  setTimeout(() => (btn.textContent = "Copy"), 1500);
+};
+
 // Enter sends, Shift+Enter adds a line; never send while an IME (Chinese, Japanese, Korean) is composing.
 const onEnter = (e: KeyboardEvent) => {
   if (e.isComposing || e.keyCode === 229) return;
@@ -107,12 +117,14 @@ const onEnter = (e: KeyboardEvent) => {
     </ol>
     <TransitionGroup v-else ref="list" tag="ol" name="msg" class="messages" aria-live="polite">
       <li v-if="!messages.length" key="hello" class="empty muted">Say hello to {{ label(config.id) }}.</li>
-      <li v-for="(m, i) in messages" :key="i" :class="m.role">
+      <li v-for="(m, i) in messages" :key="i" :class="m.role" @click="copy">
         <details v-if="m.thinking" class="think" :open="!m.content">
           <summary>{{ m.content ? "Thought" : "Thinking…" }}</summary>
-          <span>{{ m.thinking }}</span>
+          <div class="md" v-html="md(m.thinking)" />
         </details>
-        <span v-if="m.content || !m.thinking">{{ m.content || "…" }}</span>
+        <span v-if="m.role === 'user'">{{ m.content }}</span>
+        <div v-else-if="m.content" class="md" v-html="md(m.content)" />
+        <span v-else-if="!m.thinking">…</span>
         <small v-if="m.stats" class="stats">{{ m.stats }}</small>
       </li>
     </TransitionGroup>
@@ -167,10 +179,8 @@ const onEnter = (e: KeyboardEvent) => {
   font-size: 13px;
   line-height: 1.5;
 }
-.messages li {
-  white-space: pre-wrap;
-}
 .user {
+  white-space: pre-wrap;
   align-self: flex-end;
   max-width: 78%;
   background: var(--accent);
@@ -309,7 +319,7 @@ textarea:disabled {
   cursor: pointer;
   user-select: none;
 }
-.think[open] > span {
+.think[open] > div {
   display: block;
   margin-top: 4px;
   padding-left: 8px;
@@ -321,6 +331,91 @@ textarea:disabled {
   font-size: 10.5px;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
+}
+/* rendered markdown in replies (v-html, so :deep) */
+.md :deep(:is(p, ul, ol, pre, table, blockquote, h1, h2, h3, h4, .code, .katex-display)) {
+  margin: 0 0 0.6em;
+}
+.md > :deep(:last-child) {
+  margin-bottom: 0;
+}
+.md :deep(:is(ul, ol)) {
+  padding-left: 1.4em;
+}
+.md :deep(:is(h1, h2, h3, h4)) {
+  font-size: 14px;
+  font-weight: 600;
+}
+.md :deep(a) {
+  color: var(--accent);
+}
+.md :deep(code) {
+  font: 12px ui-monospace, Menlo, monospace;
+  background: var(--hover);
+  padding: 1px 4px;
+  border-radius: 4px;
+}
+.md :deep(pre) {
+  margin: 0;
+  padding: 10px 12px;
+  overflow: auto;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.md :deep(pre code) {
+  background: none;
+  padding: 0;
+}
+.md :deep(.code) {
+  position: relative;
+}
+.md :deep(.copy) {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  font: inherit;
+  font-size: 10.5px;
+  padding: 1px 7px;
+  color: var(--muted);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.md :deep(table) {
+  border-collapse: collapse;
+  display: block;
+  overflow-x: auto;
+}
+.md :deep(:is(th, td)) {
+  border: 1px solid var(--line);
+  padding: 4px 8px;
+}
+.md :deep(blockquote) {
+  padding-left: 10px;
+  border-left: 3px solid var(--line);
+  color: var(--muted);
+}
+.md :deep(.katex-display) {
+  overflow-x: auto;
+}
+/* syntax colors from the theme tokens, so Light/Dark follow for free */
+.md :deep(:is(.hljs-keyword, .hljs-selector-tag, .hljs-type)) {
+  color: var(--accent);
+}
+.md :deep(:is(.hljs-string, .hljs-attr, .hljs-regexp)) {
+  color: var(--amber);
+}
+.md :deep(:is(.hljs-number, .hljs-literal, .hljs-built_in)) {
+  color: var(--danger);
+}
+.md :deep(:is(.hljs-comment, .hljs-meta)) {
+  color: var(--muted);
+  font-style: italic;
+}
+.md :deep(:is(.hljs-title, .hljs-section)) {
+  font-weight: 600;
 }
 /* server log under the chat once it's on */
 .log.tail {

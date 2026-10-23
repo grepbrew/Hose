@@ -144,6 +144,10 @@ const SSE = [
 
 // with enable_thinking, as a real Qwen3.5 pod sends it: the template opens <think> in the prompt, so the content is
 // the reasoning, then </think>, then the answer
+// user sends "md": a markdown reply (bold, list, code, math), then the usual stop + usage
+const MD = "**Bold text** and a list:\n\n- one\n- two\n\n```ts\nconst a = 1\n```\n\nArea is $x^2$.";
+const SSE_MD = [`data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: MD } }] })}\n\n`, ...SSE.slice(2)];
+
 const SSE_THINK = [
   'data: {"choices":[{"index":0,"delta":{"content":"The user says hi."}}]}\n\n',
   'data: {"choices":[{"index":0,"delta":{"content":"\\n</think>\\n\\n"}}]}\n\n',
@@ -260,6 +264,7 @@ export const handlers = [
     if (id === "broken") return new HttpResponse("Internal Server Error", { status: 500 });
     // pod "mute": vLLM finishes without a word (stop + usage + [DONE] only)
     if (id === "mute") return sse(SSE.slice(2));
+    if (state.lastChat.messages.at(-1)?.content === "md") return sse(SSE_MD);
     return sse(state.lastChat.chat_template_kwargs?.enable_thinking ? SSE_THINK : SSE);
   }),
   http.get("https://*.proxy.runpod.net/metrics", () => HttpResponse.text(metrics(state.served))),
