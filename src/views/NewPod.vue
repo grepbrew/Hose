@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from "vue";
 import { hfSearch, hfModelInfo, hfCanDownload, type HfHit } from "../api";
-import { PRESETS, parseHfModel, label, billions, vramNeededGb, diskGb, fitDisk, weightsGb, allDay, volumePerMo, usd, type Cloud, type Config, type GpuCard, type Model, type Preset } from "../cost";
+import { PRESETS, parseHfModel, label, billions, vramNeededGb, diskGb, fitDisk, weightsGb, allDay, volumePerMo, usd, type Cloud, type Config, type GpuCard, type HfReject, type Model, type Preset } from "../cost";
 import type { Fleet } from "../fleet";
 import GpuPicker from "./GpuPicker.vue";
 import Icon from "./Icon.vue";
@@ -24,10 +24,17 @@ const model = ref<Model>(PRESETS.find((p) => p.size === "M")!);
 const error = ref("");
 const chips = computed(() => PRESETS.filter((p) => p.size === size.value));
 const locked = (gated: unknown) => !!gated && !props.hfToken;
+const GATED = "This model is gated. Add a Hugging Face token under Settings › Keys first.";
+const WHY: Record<HfReject, string> = {
+  gated: GATED,
+  "not-chat": "That's not a chat model. Hose runs text chat models only.",
+  "no-weights": "That model has no safetensors weights, so Hose can't size or run it.",
+  "no-template": "That model has no chat template (likely a base model). Pick its Instruct or chat version.",
+};
 
 async function choose(m: Model, gated: unknown) {
   error.value = "";
-  if (locked(gated)) return void (error.value = "This model is gated. Add a Hugging Face token under Settings › Keys first.");
+  if (locked(gated)) return void (error.value = GATED);
   if (gated && !(await hfCanDownload(m.id, props.hfToken)))
     return void (error.value = `Accept the licence on huggingface.co/${m.id} with your Hugging Face account, then pick it again.`);
   model.value = { id: m.id, params: m.params };
@@ -62,9 +69,7 @@ async function check() {
   try {
     const info = await hfModelInfo(id, props.hfToken);
     const r = parseHfModel(info, !!props.hfToken);
-    if (!r.ok)
-      error.value =
-        r.reason === "needs Hugging Face token" ? "This model is gated. Add a Hugging Face token under Settings › Keys first." : `${id} is ${r.reason}. Hose runs text chat models only.`;
+    if (!r.ok) error.value = WHY[r.reason];
     else await choose(r.model, info.gated);
   } catch (e) {
     error.value = errorText(e);

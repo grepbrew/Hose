@@ -69,19 +69,40 @@ describe("parseHfModel", () => {
     pipeline_tag: "text-generation",
     gated: false,
     safetensors: { parameters: { BF16: 8e9 } },
+    config: { tokenizer_config: { chat_template: "{{ messages }}" } },
     ...over,
   });
 
   it("not chat", () => {
     const r = parseHfModel(info({ pipeline_tag: "text-to-image" }), true);
 
-    expect(r).toEqual({ ok: false, reason: "not a chat model" });
+    expect(r).toEqual({ ok: false, reason: "not-chat" });
   });
 
   it("gated", () => {
     const r = parseHfModel(info({ gated: "manual" }), false);
 
-    expect(r).toEqual({ ok: false, reason: "needs Hugging Face token" });
+    expect(r).toEqual({ ok: false, reason: "gated" });
+  });
+
+  it("no weights", () => {
+    const r = parseHfModel(info({ safetensors: undefined }), true);
+
+    expect(r).toEqual({ ok: false, reason: "no-weights" });
+  });
+
+  it("no template", () => {
+    // base models (meta-llama/Llama-3.1-8B live 2026-10-23): HF config carries no chat template
+    const r = parseHfModel(info({ config: { tokenizer_config: {} } }), true);
+
+    expect(r).toEqual({ ok: false, reason: "no-template" });
+  });
+
+  it("jinja template", () => {
+    // Qwen3.5, gpt-oss: the template lives in chat_template.jinja, which HF exposes as config.chat_template_jinja
+    const r = parseHfModel(info({ config: { chat_template_jinja: "{{ messages }}" } }), true);
+
+    expect(r).toEqual({ ok: true, model: { id: "org/m", params: { BF16: 8e9 } } });
   });
 
   it("image-text-to-text", () => {
@@ -208,6 +229,13 @@ describe("podInput", () => {
     const input = podInput(model, "NVIDIA GeForce RTX 4090", "SECURE", "", "k1", 10, "WD");
 
     expect(Object.keys(input.env)).not.toContain("HF_TOKEN");
+  });
+
+  it("context auto", () => {
+    const input = podInput(model, "NVIDIA GeForce RTX 4090", "SECURE", "", "k1", 10, "WD");
+
+    // vLLM picks the model's own max if it fits, else the largest that fits: a fixed 8192 kills a 4k model's boot
+    expect(input.entrypoint.join(" ")).toContain("--max-model-len auto");
   });
 
   it("disk and location", () => {

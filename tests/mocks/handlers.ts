@@ -69,17 +69,22 @@ export function seed(name: string | null) {
   }
 }
 
-// GET /api/models?search= with expand[]: id, pipeline_tag, downloads, gated, safetensors (live shape 2026-10-22)
-const hfModel = (id: string, pipeline_tag: string | null, downloads: number, params: number | null, gated: boolean | string = false) => ({
+// GET /api/models?search= with expand[]: id, pipeline_tag, downloads, gated, safetensors, config (live shape 2026-10-23)
+const CHAT_CONFIG = { tokenizer_config: { chat_template: "{{ messages }}" } };
+const hfModel = (id: string, pipeline_tag: string | null, downloads: number, params: number | null, gated: boolean | string = false, config: object = CHAT_CONFIG) => ({
   id,
   pipeline_tag,
   downloads,
   gated,
+  config,
   ...(params ? { safetensors: { parameters: { BF16: params }, total: params } } : {}),
 });
+// the live API sends config (tokenizer_config.chat_template, chat_template_jinja) only for expand[]=config
+const expand = <T extends { config?: object }>(request: Request, { config, ...m }: T) =>
+  new URL(request.url).searchParams.getAll("expand[]").includes("config") ? { ...m, config } : m;
 const HF_MODELS = [
   hfModel("deepseek-ai/DeepSeek-R1-Distill-Qwen-7B", "text-generation", 1316000, 7615616512),
-  hfModel("deepseek-ai/DeepSeek-OCR", "image-text-to-text", 2092524, 3336106240),
+  hfModel("deepseek-ai/DeepSeek-OCR", "image-text-to-text", 2092524, 3336106240, false, {}), // live: no chat template
   hfModel("antirez/deepseek-v4.1-flash-gguf", null, 1420082, null),
   hfModel("deepseek-ai/Janus-Pro-7B", "any-to-any", 90000, 7420000000),
   hfModel("black-forest-labs/FLUX.1-schnell", "text-to-image", 700000, 11.9e9),
@@ -252,15 +257,20 @@ export const handlers = [
   http.get("https://huggingface.co/api/whoami-v2", () => HttpResponse.json({ name: "tester" })),
   http.get("https://huggingface.co/api/models", ({ request }) => {
     const q = (new URL(request.url).searchParams.get("search") ?? "").toLowerCase();
-    return HttpResponse.json(HF_MODELS.filter((m) => m.id.toLowerCase().includes(q)));
+    return HttpResponse.json(HF_MODELS.filter((m) => m.id.toLowerCase().includes(q)).map((m) => expand(request, m)));
   }),
   // gated-model licence check (hfCanDownload)
   http.head("https://huggingface.co/:org/:name/resolve/main/config.json", () => new HttpResponse(null, { status: 200 })),
-  http.get("https://huggingface.co/api/models/:org/:name", ({ params }) =>
-    HttpResponse.json(
-      params.name === "FLUX.1-schnell"
-        ? { pipeline_tag: "text-to-image", gated: false, safetensors: { parameters: { BF16: 11.9e9 } } }
-        : { pipeline_tag: "text-generation", gated: false, safetensors: { parameters: { BF16: 8e9 } } },
-    ),
+  http.get("https://huggingface.co/api/models/:org/:name", ({ params, request }) =>
+    params.name === "missing"
+      ? new HttpResponse(null, { status: 404 })
+      : HttpResponse.json(
+          expand(
+            request,
+            params.name === "FLUX.1-schnell"
+              ? { pipeline_tag: "text-to-image", gated: false, safetensors: { parameters: { BF16: 11.9e9 } }, config: {} }
+              : { pipeline_tag: "text-generation", gated: false, safetensors: { parameters: { BF16: 8e9 } }, config: CHAT_CONFIG },
+          ),
+        ),
   ),
 ];

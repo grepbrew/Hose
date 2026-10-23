@@ -102,15 +102,20 @@ export type HfInfo = {
   pipeline_tag?: string;
   gated?: boolean | string;
   safetensors?: { parameters: Record<string, number> };
+  config?: { tokenizer_config?: { chat_template?: unknown }; chat_template_jinja?: string };
 };
 
 /** HF pipeline tags Hose can chat with. image-text-to-text models (Qwen3.5, Gemma 4) take plain text too. */
 export const CHAT_TAGS = ["text-generation", "image-text-to-text"];
 
-export function parseHfModel(info: HfInfo, hasToken: boolean): { ok: true; model: Model } | { ok: false; reason: string } {
-  if (!CHAT_TAGS.includes(info.pipeline_tag ?? "")) return { ok: false, reason: "not a chat model" };
-  if (info.gated && !hasToken) return { ok: false, reason: "needs Hugging Face token" };
-  if (!info.safetensors) return { ok: false, reason: "unknown model size (no safetensors weights)" };
+export type HfReject = "not-chat" | "gated" | "no-weights" | "no-template";
+
+export function parseHfModel(info: HfInfo, hasToken: boolean): { ok: true; model: Model } | { ok: false; reason: HfReject } {
+  if (!CHAT_TAGS.includes(info.pipeline_tag ?? "")) return { ok: false, reason: "not-chat" };
+  if (info.gated && !hasToken) return { ok: false, reason: "gated" };
+  if (!info.safetensors) return { ok: false, reason: "no-weights" };
+  // base models carry no chat template; vLLM's /v1/chat/completions refuses them
+  if (!info.config?.tokenizer_config?.chat_template && !info.config?.chat_template_jinja) return { ok: false, reason: "no-template" };
   return { ok: true, model: { id: info.id, params: info.safetensors.parameters } };
 }
 
@@ -192,7 +197,7 @@ export function podInput(
       "-c",
       // no exec: if vLLM dies the container stays up and this watchdog deletes the pod. A container restart would
       // start a fresh watchdog with a fresh boot timer, so a crash loop could bill forever.
-      'python3 -c "$HOSE_WATCHDOG" & vllm serve "$MODEL" --port 8000 --api-key "$HOSE_KEY" --max-model-len 8192; sleep infinity',
+      'python3 -c "$HOSE_WATCHDOG" & vllm serve "$MODEL" --port 8000 --api-key "$HOSE_KEY" --max-model-len auto; sleep infinity',
     ],
   };
 }

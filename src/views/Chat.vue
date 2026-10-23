@@ -54,7 +54,7 @@ watch(
 const pod = computed(() => props.fleet.podOf(props.config));
 const stuck = computed(() => state.value === "Starting" && stuckBoot(pod.value?.createdAt, props.fleet.s.now, logs.value.length));
 
-// ponytail: keep the last 20 turns so long chats stay inside the 8192-token context; token-count trimming if that bites
+// ponytail: keep the last 20 turns so long chats stay inside the model's context; token-count trimming if that bites
 const HISTORY = 20;
 
 async function send() {

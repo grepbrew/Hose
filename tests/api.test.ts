@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { setupServer } from "msw/node";
 import { handlers, seed, state } from "./mocks/handlers";
-import { getBalance, listHosePods, podReady, chatStream, podLogs, hfSearch, getDatacenterName, type LogLine, type Message, type Reply } from "../src/api";
+import { getBalance, listHosePods, podReady, chatStream, podLogs, hfSearch, hfModelInfo, getDatacenterName, type LogLine, type Message, type Reply } from "../src/api";
 
 const server = setupServer(...handlers);
 let calls: string[] = [];
@@ -100,10 +100,25 @@ describe("hfSearch", () => {
   it("chat models only", async () => {
     const found = await hfSearch("deepseek", "");
 
-    expect(found).toEqual([
-      { id: "deepseek-ai/DeepSeek-OCR", params: { BF16: 3336106240 }, downloads: 2092524, gated: false },
-      { id: "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B", params: { BF16: 7615616512 }, downloads: 1316000, gated: false },
-    ]);
+    // DeepSeek-OCR is image-text-to-text but has no chat template, so vLLM can't chat with it
+    expect(found).toEqual([{ id: "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B", params: { BF16: 7615616512 }, downloads: 1316000, gated: false }]);
+  });
+});
+
+describe("hfModelInfo", () => {
+  it("ok", async () => {
+    const info = await hfModelInfo("Qwen/Qwen3-8B", "");
+
+    expect(info).toMatchObject({
+      id: "Qwen/Qwen3-8B",
+      pipeline_tag: "text-generation",
+      safetensors: { parameters: { BF16: 8e9 } },
+      config: { tokenizer_config: { chat_template: expect.any(String) } },
+    });
+  });
+
+  it("missing", async () => {
+    await expect(hfModelInfo("org/missing", "")).rejects.toThrow("No model with that name on Hugging Face");
   });
 });
 

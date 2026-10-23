@@ -2,7 +2,7 @@
 // management API blocks browser CORS); in vite dev / tests plain fetch is used and msw answers.
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import { isTauri } from "@tauri-apps/api/core";
-import { sseData, sseReply, replyStats, vllmLoad, logText, placeName, CHAT_TAGS, type Cloud, type DataCenter, type Gpu, type HfInfo, type Pod } from "./cost";
+import { sseData, sseReply, replyStats, vllmLoad, logText, placeName, parseHfModel, type Cloud, type DataCenter, type Gpu, type HfInfo, type Pod } from "./cost";
 
 const REST = "https://api.runpod.io/v2";
 const GQL = "https://api.runpod.io/graphql";
@@ -178,7 +178,7 @@ export async function hfWhoami(token: string): Promise<string> {
 }
 
 export async function hfModelInfo(id: string, token: string): Promise<HfInfo> {
-  const q = ["pipeline_tag", "gated", "safetensors"].map((f) => `expand[]=${f}`).join("&");
+  const q = ["pipeline_tag", "gated", "safetensors", "config"].map((f) => `expand[]=${f}`).join("&");
   const res = await http(`${HF}/api/models/${id}?${q}`, { headers: hfHeaders(token) });
   if (res.status === 404 || res.status === 401) throw new Error("No model with that name on Hugging Face");
   if (!res.ok) throw new Error(`Hugging Face error ${res.status}`);
@@ -187,14 +187,14 @@ export async function hfModelInfo(id: string, token: string): Promise<HfInfo> {
 
 export type HfHit = { id: string; params: Record<string, number>; downloads: number; gated: boolean | string };
 
-/** Chat models matching q, most downloaded first. Repos without safetensors (GGUF etc.) can't be sized or served: dropped. */
+/** Chat models matching q, most downloaded first. Repos parseHfModel rejects (GGUF, base models without a chat template…) are dropped. */
 export async function hfSearch(q: string, token: string): Promise<HfHit[]> {
-  const expand = ["pipeline_tag", "safetensors", "downloads", "gated"].map((f) => `expand[]=${f}`).join("&");
+  const expand = ["pipeline_tag", "safetensors", "downloads", "gated", "config"].map((f) => `expand[]=${f}`).join("&");
   const res = await http(`${HF}/api/models?search=${encodeURIComponent(q)}&sort=downloads&limit=40&${expand}`, { headers: hfHeaders(token) });
   if (!res.ok) throw new Error(`Hugging Face error ${res.status}`);
   const all: (HfInfo & { downloads: number })[] = await res.json();
   return all
-    .filter((m) => CHAT_TAGS.includes(m.pipeline_tag ?? "") && m.safetensors)
+    .filter((m) => parseHfModel(m, true).ok) // gated hits stay listed; choose() asks for the token
     .sort((a, b) => b.downloads - a.downloads)
     .slice(0, 12)
     .map((m) => ({ id: m.id, params: m.safetensors!.parameters, downloads: m.downloads, gated: m.gated ?? false }));
