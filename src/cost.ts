@@ -47,20 +47,32 @@ export function placeName(location: string, dcs: DataCenter[]) {
 
 export type Model = { id: string; params: Record<string, number> };
 
-export type Preset = Model & { label: string; blurb: string; tag: string; size: "S" | "M" | "L"; gated?: boolean };
+export type Preset = Model & { label: string; blurb: string; tag: string; thinks: boolean; gated?: boolean; active?: number };
 
-// Locked on the signed-off mockup (2026-10-22). Params from the HF API; vLLM v0.32.0 registers every architecture here.
+// Locked on the signed-off mockup (2026-10-22; Coder added for the quick start 2026-10-23). Params from the HF API;
+// vLLM v0.32.0 registers every architecture here. thinks = thinks() on each repo's chat template (2026-10-23).
+// active = parameters each token reads, for a mixture-of-experts repo whose name doesn't say it (activeGb).
 // Qwen3.5/3.8 and Gemma 4 are image-text-to-text models; Hose only sends them text.
 export const PRESETS: Preset[] = [
-  { size: "S", label: "Qwen3.5-4B", blurb: "Quick everyday answers", tag: "Qwen · new", id: "Qwen/Qwen3.5-4B", params: { BF16: 4659861248, F32: 3840 } },
-  { size: "S", label: "Qwen3-4B-Instruct", blurb: "Fast, text only", tag: "Qwen", id: "Qwen/Qwen3-4B-Instruct-2507", params: { BF16: 4022468096 } },
-  { size: "S", label: "Phi-4-mini", blurb: "Small, good at reasoning", tag: "Microsoft", id: "microsoft/Phi-4-mini-instruct", params: { BF16: 3836021760 } },
-  { size: "M", label: "Qwen3.5-9B", blurb: "Good all-rounder for writing and reasoning", tag: "Qwen · new", id: "Qwen/Qwen3.5-9B", params: { BF16: 9653100528, F32: 3840 } },
-  { size: "M", label: "Llama-3.1-8B", blurb: "Meta's popular 8B", tag: "Meta", id: "meta-llama/Llama-3.1-8B-Instruct", params: { BF16: 8030261248 }, gated: true },
-  { size: "M", label: "Granite-4.2-8B", blurb: "Clear, businesslike writing", tag: "IBM · new", id: "ibm-granite/granite-4.2-8b", params: { BF16: 8791592960 } },
-  { size: "L", label: "Qwen3.8-27B", blurb: "Strongest that fits one GPU", tag: "Qwen · new", id: "Qwen/Qwen3.8-27B", params: { BF16: 27781427952 } },
-  { size: "L", label: "Gemma-4-26B-A4B", blurb: "Fast for its size", tag: "Google · new", id: "google/gemma-4-26B-A4B-it", params: { BF16: 25805936206 } },
-  { size: "L", label: "gpt-oss-20b", blurb: "OpenAI's open model", tag: "OpenAI", id: "openai/gpt-oss-20b", params: { BF16: 1804459584, U8: 19110297600 } },
+  { label: "Qwen3.5-4B", blurb: "Quick everyday answers", tag: "Qwen · new", thinks: true, id: "Qwen/Qwen3.5-4B", params: { BF16: 4659861248, F32: 3840 } },
+  { label: "Qwen3-4B-Instruct", blurb: "Fast, text only", tag: "Qwen", thinks: false, id: "Qwen/Qwen3-4B-Instruct-2507", params: { BF16: 4022468096 } },
+  { label: "Phi-4-mini", blurb: "Small, good at reasoning", tag: "Microsoft", thinks: false, id: "microsoft/Phi-4-mini-instruct", params: { BF16: 3836021760 } },
+  { label: "Qwen3.5-9B", blurb: "Good all-rounder for writing and reasoning", tag: "Qwen · new", thinks: true, id: "Qwen/Qwen3.5-9B", params: { BF16: 9653100528, F32: 3840 } },
+  { label: "Llama-3.1-8B", blurb: "Meta's popular 8B", tag: "Meta", thinks: false, id: "meta-llama/Llama-3.1-8B-Instruct", params: { BF16: 8030261248 }, gated: true },
+  { label: "Granite-4.2-8B", blurb: "Clear, businesslike writing", tag: "IBM · new", thinks: true, id: "ibm-granite/granite-4.2-8b", params: { BF16: 8791592960 } },
+  { label: "Qwen3.8-27B", blurb: "Strongest that fits one GPU", tag: "Qwen · new", thinks: true, id: "Qwen/Qwen3.8-27B", params: { BF16: 27781427952 } },
+  { label: "Gemma-4-26B-A4B", blurb: "Fast for its size", tag: "Google · new", thinks: true, id: "google/gemma-4-26B-A4B-it", params: { BF16: 25805936206 } },
+  { label: "gpt-oss-20b", blurb: "OpenAI's open model", tag: "OpenAI", thinks: true, active: 3.6e9, id: "openai/gpt-oss-20b", params: { BF16: 1804459584, U8: 19110297600 } },
+  { label: "Qwen3-Coder-30B", blurb: "Writes and fixes code", tag: "Qwen", thinks: false, id: "Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8", params: { BF16: 636948480, F8_E4M3: 29896998912 } },
+];
+
+/** New pod's quick start: one card per job, each a preset started in one click on the GPU Hose recommends. */
+export const QUICK: { purpose: string; blurb: string; icon: "chat-circle-dots" | "pen-nib" | "brain" | "code" | "lightning"; id: string; think?: boolean }[] = [
+  { purpose: "Everyday questions", blurb: "Ask anything: plan a trip, explain a letter, compare two options.", icon: "chat-circle-dots", id: "Qwen/Qwen3.5-9B" },
+  { purpose: "Writing & email", blurb: "Drafts, rewrites and replies in a clear, friendly tone.", icon: "pen-nib", id: "ibm-granite/granite-4.2-8b" },
+  { purpose: "Hard problems", blurb: "Thinks step by step before it answers. Slower, more careful.", icon: "brain", id: "Qwen/Qwen3.8-27B", think: true },
+  { purpose: "Coding", blurb: "Writes, explains and fixes code in most languages.", icon: "code", id: "Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8" },
+  { purpose: "Fast & cheap", blurb: "Quick, short answers at the lowest price.", icon: "lightning", id: "Qwen/Qwen3.5-4B" },
 ];
 
 /** Short display name: the curated label, else the repo name. */
@@ -76,25 +88,104 @@ export const weightsGb = (params: Record<string, number>) =>
 // weights + 20% runtime overhead + 2 GB KV cache for an 8k context
 export const vramNeededGb = (params: Record<string, number>) => weightsGb(params) * 1.2 + 2;
 
-export type GpuCard = { id: string; name: string; memory: number; price: number; stock: string; fits: boolean; reason: string };
+/** GPU memory to run the model smoothly: weights + 20% runtime overhead + 8 GB of KV cache, room for long chats. */
+export const smoothGb = (params: Record<string, number>) => weightsGb(params) * 1.2 + 8;
+
+// Memory bandwidth in GB/s by RunPod's GPU name (vendor spec sheets; names as the live catalog sends them, 2026-10-23).
+// A reply streams one token per pass over the weights, so bandwidth sets reply speed. A MIG slice gets its share.
+// ponytail: static table; a GPU missing here gets no speed estimate (tier "works") until it's added.
+export const GPU_GBPS: Record<string, number> = {
+  "RTX A2000": 288, "RTX A4000": 448, "RTX A4500": 640, "RTX A5000": 768, "RTX A6000": 768,
+  "RTX 2000 Ada": 224, "RTX 4000 Ada": 360, "RTX 4000 Ada SFF": 280, "RTX 5000 Ada": 576, "RTX 6000 Ada": 960,
+  "RTX 3070": 448, "RTX 3080": 760, "RTX 3080 Ti": 912, "RTX 3090": 936, "RTX 3090 Ti": 1008,
+  "RTX 4070 Ti": 504, "RTX 4080": 717, "RTX 4080 SUPER": 736, "RTX 4090": 1008, "RTX 5080": 960, "RTX 5090": 1792,
+  "RTX PRO 4000": 672, "RTX PRO 4500": 896, "RTX PRO 5000": 1344, "RTX PRO 6000": 1792, "RTX PRO 6000 MaxQ": 1792, "RTX PRO 6000 WK": 1792,
+  "PRO 6000 MIG 24GB": 448, "PRO 6000 MIG 48GB": 896,
+  L4: 300, L40: 864, L40S: 864, A40: 696,
+  "Tesla V100": 900, "V100 SXM2": 900, "A100 PCIe": 1935, "A100 SXM": 2039, "A100 SXM 40GB": 1555,
+  "H100 PCIe": 2000, "H100 SXM": 3350, "H100 NVL": 3900, "H200 SXM": 4800, "H200 NVL": 4800,
+  B200: 8000, B300: 8000, MI300X: 5300,
+};
+
+// ponytail: calibration knobs, set on paper (vLLM reaches ~70% of peak bandwidth for one chat), not measured; tune
+// them once real pods report tok/s. 20 tok/s reads comfortably, 40 feels instant.
+const EFFICIENCY = 0.7;
+const SMOOTH_TPS = 20;
+const FAST_TPS = 40;
+
+const paramCount = (params: Record<string, number>) => Object.values(params).reduce((a, b) => a + b, 0);
+
+/**
+ * GB each generated token reads. A mixture-of-experts model reads only its active experts: the preset's active count,
+ * else the "-A3B" in the repo name (Qwen3-Coder-30B-A3B, gemma-4-26B-A4B), else all weights.
+ * ponytail: name heuristic; an MoE repo whose name doesn't say it counts as dense, so it looks slower than it is (safe side).
+ */
+export function activeGb(m: Model) {
+  const all = weightsGb(m.params);
+  const active = PRESETS.find((p) => p.id === m.id)?.active ?? Number(/-A(\d+(?:\.\d+)?)B/i.exec(m.id)?.[1] ?? 0) * 1e9;
+  return active ? Math.min(all, (all * active) / paramCount(m.params)) : all;
+}
+
+/** Estimated reply speed in tokens a second, one chat at a time; null for a GPU missing from GPU_GBPS. */
+export const tokPerSec = (gpuName: string, m: Model) => (GPU_GBPS[gpuName] ? (GPU_GBPS[gpuName] * EFFICIENCY) / activeGb(m) : null);
+
+export type GpuCard = {
+  id: string;
+  name: string;
+  memory: number;
+  price: number;
+  stock: string;
+  fits: boolean; // tier smooth or works
+  reason: string; // "Too small" or "Sold out" when it doesn't fit
+  tier: "smooth" | "works" | "too-small" | "sold-out";
+  tps: number | null;
+  note: string; // what the card says about running this model
+};
 
 const STOCK_RANK = ["NONE", "LOW", "MEDIUM", "HIGH"];
 
 /**
- * Cards for the GPU picker: every GPU offered on this cloud, cheapest first, marked whether it can run the model.
- * With data center ids, only GPUs offered there, with the best stock among them.
+ * Cards for the GPU picker: every GPU offered on this cloud, cheapest first, rated for the model. smooth = room for
+ * long chats (smoothGb) and replies of 20 tok/s or more; works = it fits (vramNeededGb), but chats must stay short,
+ * replies are slower or the speed is unknown. With data center ids, only GPUs offered there, with the best stock among them.
  */
-export function gpuCards(catalog: Gpu[], cloud: Cloud, needGb: number, ids: string[] = []): GpuCard[] {
+export function gpuCards(catalog: Gpu[], cloud: Cloud, model: Model, ids: string[] = []): GpuCard[] {
   const key = cloud === "SECURE" ? "secure" : "community";
+  const need = vramNeededGb(model.params);
+  const room = smoothGb(model.params);
   return catalog
     .filter((g) => g[key] && g.price[key] && (!ids.length || g.dataCenters?.some((d) => ids.includes(d.id))))
-    .map((g) => {
+    .map((g): GpuCard => {
       const here = g.dataCenters?.filter((d) => ids.includes(d.id)).map((d) => d.availability) ?? [];
       const stock = ids.length ? here.reduce((a, b) => (STOCK_RANK.indexOf(b) > STOCK_RANK.indexOf(a) ? b : a)) : (g.availability ?? "NONE");
-      const reason = g.memory < needGb ? "Too small" : stock === "NONE" ? "Sold out" : "";
-      return { id: g.id, name: g.name, memory: g.memory, price: g.price[key]!, stock, fits: !reason, reason };
+      const reason = g.memory < need ? "Too small" : stock === "NONE" ? "Sold out" : "";
+      const tps = tokPerSec(g.name, model);
+      const smooth = g.memory >= room && !!tps && tps >= SMOOTH_TPS;
+      const tier = reason === "Too small" ? "too-small" : reason ? "sold-out" : smooth ? "smooth" : "works";
+      const note =
+        reason || (smooth ? (tps! >= FAST_TPS ? "Fast replies" : "Smooth") : g.memory < room ? "Works · short chats only" : tps ? "Works · slower replies" : "Works");
+      return { id: g.id, name: g.name, memory: g.memory, price: g.price[key]!, stock, fits: !reason, reason, tier, tps, note };
     })
     .sort((a, b) => a.price - b.price);
+}
+
+/** The GPU Hose picks: the cheapest smooth one with GPUs to spare (HIGH/MEDIUM stock), else the cheapest smooth, else the cheapest that works. */
+export function recommend(cards: GpuCard[]): GpuCard | null {
+  const cheapest = (ok: (c: GpuCard) => boolean) => cards.filter(ok).sort((a, b) => a.price - b.price)[0];
+  return (
+    cheapest((c) => c.tier === "smooth" && (c.stock === "HIGH" || c.stock === "MEDIUM")) ??
+    cheapest((c) => c.tier === "smooth") ??
+    cheapest((c) => c.tier === "works") ??
+    null
+  );
+}
+
+/** Location choices: data centers that offer at least one GPU in the catalog, grouped by region. */
+export function regionsOf(catalog: Gpu[], dcs: DataCenter[]) {
+  const offered = new Set(catalog.flatMap((g) => g.dataCenters?.map((d) => d.id) ?? []));
+  const groups: Record<string, DataCenter[]> = {};
+  for (const d of dcs) if (offered.has(d.id)) (groups[d.region] ??= []).push(d);
+  return Object.entries(groups);
 }
 
 export type HfInfo = {
@@ -107,6 +198,31 @@ export type HfInfo = {
 
 /** HF pipeline tags Hose can chat with. image-text-to-text models (Qwen3.5, Gemma 4) take plain text too. */
 export const CHAT_TAGS = ["text-generation", "image-text-to-text"];
+
+/** The chat template has a thinking switch: enable_thinking (Qwen3, Granite, Gemma 4), <think> (DeepSeek-R1), reasoning_effort (gpt-oss). */
+export const thinks = (info: HfInfo) =>
+  /enable_thinking|<think>|reasoning_effort/.test(JSON.stringify([info.config?.tokenizer_config?.chat_template, info.config?.chat_template_jinja]));
+
+/** Size filter: Small under 7B parameters, Medium 7–20B, Large over 20B. */
+export function sizeBand(params: Record<string, number>): "S" | "M" | "L" {
+  const b = paramCount(params) / 1e9;
+  return b < 7 ? "S" : b <= 20 ? "M" : "L";
+}
+
+/** maxPrice 0 = any; maker = the Hugging Face owner ("" = any); sort "cheap" re-sorts, other sorts keep the rows' order. */
+export type ModelFilter = { size: "" | "S" | "M" | "L"; maxPrice: number; maker: string; thinking: boolean; hideGated: boolean; sort: string };
+
+/** The model list under the filters. price = $/hr on the model's recommended GPU, null = no GPU can run it. */
+export function filterModels<R extends Model & { gated?: unknown; thinks?: boolean; price: number | null }>(rows: R[], f: ModelFilter) {
+  const ok = (r: R) =>
+    (!f.size || sizeBand(r.params) === f.size) &&
+    (!f.maxPrice || (r.price != null && r.price <= f.maxPrice)) &&
+    (!f.maker || r.id.split("/")[0] === f.maker) &&
+    (!f.thinking || !!r.thinks) &&
+    (!f.hideGated || !r.gated);
+  const price = (r: R) => r.price ?? Infinity;
+  return rows.filter(ok).sort((a, b) => (f.sort === "cheap" && price(a) !== price(b) ? price(a) - price(b) : 0));
+}
 
 export type HfReject = "not-chat" | "gated" | "no-weights" | "no-template";
 
@@ -314,6 +430,30 @@ export type Config = Model & {
   log?: boolean; // chat: server log panel under the messages
 };
 
+/** A new config for a model on a GPU card: Secure, off after 10 quiet minutes, the recommended storage. over = the user's choices. */
+export const newConfig = (m: Model, g: GpuCard, over: Partial<Config> = {}): Config => ({
+  key: crypto.randomUUID(),
+  name: `${label(m.id)} · ${g.name}`,
+  id: m.id,
+  params: m.params,
+  gpuId: g.id,
+  gpuName: g.name,
+  cloud: "SECURE",
+  disk: diskGb(m.params),
+  idleMin: 10,
+  price: g.price,
+  vram: g.memory,
+  pastPodIds: [],
+  spentPast: 0,
+  ...over,
+});
+
+/** Change GPU: the config's next pod runs on g. An auto name follows the GPU. */
+export function moveTo(c: Config, g: GpuCard, cloud = c.cloud, location = c.location) {
+  if (c.name === `${label(c.id)} · ${c.gpuName}`) c.name = `${label(c.id)} · ${g.name}`;
+  Object.assign(c, { gpuId: g.id, gpuName: g.name, cloud, location: location || undefined, price: g.price, vram: g.memory });
+}
+
 /** Records saved before 2026-10-22 had no key or name: one config per model id. */
 export const migrateConfigs = (raw: any[]): Config[] =>
   raw.map((c) =>
@@ -399,4 +539,4 @@ export function ago(iso: string, now: number) {
 }
 
 /** 7.6B */
-export const billions = (params: Record<string, number>) => `${(Object.values(params).reduce((a, b) => a + b, 0) / 1e9).toFixed(1)}B`;
+export const billions = (params: Record<string, number>) => `${(paramCount(params) / 1e9).toFixed(1)}B`;

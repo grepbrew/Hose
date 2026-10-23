@@ -2,7 +2,7 @@
 // management API blocks browser CORS); in vite dev / tests plain fetch is used and msw answers.
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import { isTauri } from "@tauri-apps/api/core";
-import { sseData, sseReply, replyStats, vllmLoad, logText, placeName, parseHfModel, type Cloud, type DataCenter, type Gpu, type HfInfo, type Pod } from "./cost";
+import { sseData, sseReply, replyStats, vllmLoad, logText, placeName, parseHfModel, thinks, type Cloud, type DataCenter, type Gpu, type HfInfo, type Pod } from "./cost";
 
 const REST = "https://api.runpod.io/v2";
 const GQL = "https://api.runpod.io/graphql";
@@ -38,8 +38,17 @@ export async function getBalance(key: string): Promise<number> {
   return myself.clientBalance;
 }
 
-export const getGpus = (key: string, cloud: Cloud) =>
-  runpod<{ gpus: Gpu[] }>(`${REST}/catalog/gpus?include=AVAILABILITY&product=POD&cloud=${cloud}&minCudaVersion=13.0`, key).then((r) => r.gpus);
+// ponytail: one catalog fetch per key and cloud a minute, shared by the quick start, the model list and the GPU
+// picker; stock shown may be up to 60 s old
+const gpuCache = new Map<string, { at: number; gpus: Promise<Gpu[]> }>();
+export function getGpus(key: string, cloud: Cloud): Promise<Gpu[]> {
+  const hit = gpuCache.get(key + cloud);
+  if (hit && Date.now() - hit.at < 60000) return hit.gpus;
+  const gpus = runpod<{ gpus: Gpu[] }>(`${REST}/catalog/gpus?include=AVAILABILITY&product=POD&cloud=${cloud}&minCudaVersion=13.0`, key).then((r) => r.gpus);
+  gpus.catch(() => gpuCache.delete(key + cloud)); // try again next time
+  gpuCache.set(key + cloud, { at: Date.now(), gpus });
+  return gpus;
+}
 
 // --- pods ------------------------------------------------------------------
 
@@ -185,19 +194,22 @@ export async function hfModelInfo(id: string, token: string): Promise<HfInfo> {
   return { ...(await res.json()), id };
 }
 
-export type HfHit = { id: string; params: Record<string, number>; downloads: number; gated: boolean | string };
+export type HfHit = { id: string; params: Record<string, number>; downloads: number; gated: boolean | string; thinks: boolean };
 
-/** Chat models matching q, most downloaded first. Repos parseHfModel rejects (GGUF, base models without a chat template…) are dropped. */
-export async function hfSearch(q: string, token: string): Promise<HfHit[]> {
+/**
+ * Chat models matching q, by one owner if author is set, in HF's order for sort (downloads | trendingScore | createdAt,
+ * all highest first). Repos parseHfModel rejects (GGUF, base models without a chat template…) are dropped.
+ */
+export async function hfSearch(q: string, token: string, { author = "", sort = "downloads" } = {}): Promise<HfHit[]> {
   const expand = ["pipeline_tag", "safetensors", "downloads", "gated", "config"].map((f) => `expand[]=${f}`).join("&");
-  const res = await http(`${HF}/api/models?search=${encodeURIComponent(q)}&sort=downloads&limit=40&${expand}`, { headers: hfHeaders(token) });
+  const by = author ? `&author=${encodeURIComponent(author)}` : "";
+  const res = await http(`${HF}/api/models?search=${encodeURIComponent(q)}${by}&sort=${sort}&limit=40&${expand}`, { headers: hfHeaders(token) });
   if (!res.ok) throw new Error(`Hugging Face error ${res.status}`);
   const all: (HfInfo & { downloads: number })[] = await res.json();
   return all
     .filter((m) => parseHfModel(m, true).ok) // gated hits stay listed; choose() asks for the token
-    .sort((a, b) => b.downloads - a.downloads)
     .slice(0, 12)
-    .map((m) => ({ id: m.id, params: m.safetensors!.parameters, downloads: m.downloads, gated: m.gated ?? false }));
+    .map((m) => ({ id: m.id, params: m.safetensors!.parameters, downloads: m.downloads, gated: m.gated ?? false, thinks: thinks(m) }));
 }
 
 // Gated models: the token must belong to someone who accepted the licence on the model page.

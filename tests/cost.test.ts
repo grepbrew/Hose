@@ -31,12 +31,24 @@ import {
   offText,
   allDay,
   PRESETS,
+  QUICK,
   VLLM_IMAGE,
+  smoothGb,
+  tokPerSec,
+  recommend,
+  sizeBand,
+  thinks,
+  filterModels,
+  newConfig,
   type Config,
   type DataCenter,
   type Gpu,
+  type GpuCard,
+  type HfInfo,
+  type ModelFilter,
   type Sel,
 } from "../src/cost";
+import { GPUS } from "./mocks/handlers";
 
 // Shape of GET /v2/catalog/gpus items (api.runpod.io/v2/openapi.json); price is null off that cloud.
 const gpu = (name: string, memory: number, secure: number | null, community: number | null, availability = "HIGH"): Gpu => ({
@@ -113,7 +125,56 @@ describe("parseHfModel", () => {
   });
 });
 
+// needs 8e9×2×1.2/1e9 + 2 = 21.2 GB (gpuCards took that number before it took the model)
+const M8 = { id: "x/y", params: { BF16: 8e9 } };
+const Q9 = PRESETS.find((p) => p.label === "Qwen3.5-9B")!;
+
+describe("smoothGb", () => {
+  it("bf16 8B", () => {
+    expect(smoothGb({ BF16: 8e9 })).toBeCloseTo(27.2, 5);
+  });
+});
+
+describe("tokPerSec", () => {
+  it("dense", () => {
+    expect(tokPerSec("A40", { id: "x/y", params: { BF16: 10e9 } })).toBeCloseTo(24.36, 2);
+  });
+
+  it("moe", () => {
+    const gptOss = PRESETS.find((p) => p.label === "gpt-oss-20b")!;
+
+    expect(tokPerSec("A40", { id: "google/gemma-4-26B-A4B-it", params: { BF16: 26e9 } })).toBeCloseTo(60.9, 1);
+    // 3.6B active × (22.7 GB ÷ 20.9B params) ≈ 3.9 GB a token
+    expect(tokPerSec("A40", gptOss)).toBeCloseTo(124.4, 0);
+  });
+
+  it("unknown", () => {
+    const catalog = [gpu("Mystery GPU", 48, 0.3, null), gpu("A40", 48, 0.59, null)];
+
+    const cards = gpuCards(catalog, "SECURE", Q9);
+
+    expect(tokPerSec("Mystery GPU", Q9)).toBeNull();
+    expect(cards.map((c) => [c.name, c.tier, c.note])).toEqual([
+      ["Mystery GPU", "works", "Works"],
+      ["A40", "smooth", "Smooth"],
+    ]);
+    expect(recommend(cards)?.name).toBe("A40");
+  });
+});
+
 describe("gpuCards", () => {
+  it("tiers", () => {
+    const cards = gpuCards(GPUS, "SECURE", Q9);
+
+    expect(cards.map((c) => [c.name, c.tier, c.note])).toEqual([
+      ["RTX A4000", "too-small", "Too small"],
+      ["RTX A5000", "too-small", "Too small"],
+      ["A40", "smooth", "Smooth"],
+      ["RTX 4090", "too-small", "Too small"],
+      ["A100 PCIe", "smooth", "Fast replies"],
+    ]);
+  });
+
   it("secure cards", () => {
     const catalog = [
       gpu("RTX 4090", 24, 0.89, 0.59),
@@ -123,7 +184,7 @@ describe("gpuCards", () => {
       gpu("RTX 3070", 8, null, 0.13),
     ];
 
-    const cards = gpuCards(catalog, "SECURE", 21.2);
+    const cards = gpuCards(catalog, "SECURE", M8);
 
     expect(cards.map((c) => [c.name, c.price, c.fits, c.reason])).toEqual([
       ["RTX A4000", 0.25, false, "Too small"],
@@ -141,12 +202,12 @@ describe("gpuCards", () => {
       at(gpu("RTX A4000", 16, 0.25, 0.17), [["US-TX-3", "HIGH"]]),
     ];
 
-    expect(gpuCards(catalog, "SECURE", 21.2, ["EU-RO-1"]).map((c) => [c.name, c.stock])).toEqual([
+    expect(gpuCards(catalog, "SECURE", M8, ["EU-RO-1"]).map((c) => [c.name, c.stock])).toEqual([
       ["A40", "MEDIUM"],
       ["RTX 4090", "LOW"],
     ]);
     // a region: the best stock among its data centers
-    expect(gpuCards(catalog, "SECURE", 21.2, ["US-TX-3", "EU-RO-1"]).find((c) => c.name === "RTX 4090")!.stock).toBe("HIGH");
+    expect(gpuCards(catalog, "SECURE", M8, ["US-TX-3", "EU-RO-1"]).find((c) => c.name === "RTX 4090")!.stock).toBe("HIGH");
   });
 });
 
@@ -345,18 +406,129 @@ describe("burnRatePerHr", () => {
 });
 
 describe("PRESETS", () => {
+  // thinks: read from each repo's real chat template on HF (2026-10-23)
   it("curated list", () => {
-    expect(PRESETS.map((p) => [p.size, p.id.split("/").pop()])).toEqual([
-      ["S", "Qwen3.5-4B"],
-      ["S", "Qwen3-4B-Instruct-2507"],
-      ["S", "Phi-4-mini-instruct"],
-      ["M", "Qwen3.5-9B"],
-      ["M", "Llama-3.1-8B-Instruct"],
-      ["M", "granite-4.2-8b"],
-      ["L", "Qwen3.8-27B"],
-      ["L", "gemma-4-26B-A4B-it"],
-      ["L", "gpt-oss-20b"],
+    expect(PRESETS.map((p) => [sizeBand(p.params), p.id.split("/").pop(), p.thinks])).toEqual([
+      ["S", "Qwen3.5-4B", true],
+      ["S", "Qwen3-4B-Instruct-2507", false],
+      ["S", "Phi-4-mini-instruct", false],
+      ["M", "Qwen3.5-9B", true],
+      ["M", "Llama-3.1-8B-Instruct", false],
+      ["M", "granite-4.2-8b", true],
+      ["L", "Qwen3.8-27B", true],
+      ["L", "gemma-4-26B-A4B-it", true],
+      ["L", "gpt-oss-20b", true],
+      ["L", "Qwen3-Coder-30B-A3B-Instruct-FP8", false],
     ]);
+  });
+});
+
+const card = (name: string, tier: GpuCard["tier"], stock: string, price: number): GpuCard => ({
+  id: `NVIDIA ${name}`,
+  name,
+  memory: 48,
+  price,
+  stock,
+  fits: tier === "smooth" || tier === "works",
+  reason: "",
+  tier,
+  tps: null,
+  note: "",
+});
+
+describe("recommend", () => {
+  it("prefers stock", () => {
+    const cards = [card("RTX 4090", "works", "HIGH", 0.34), card("RTX A6000", "smooth", "LOW", 0.49), card("A40", "smooth", "MEDIUM", 0.59)];
+
+    expect(recommend(cards)?.name).toBe("A40");
+  });
+
+  it.each<[string, GpuCard[], string | undefined]>([
+    ["smooth with few free beats works", [card("RTX 4090", "works", "HIGH", 0.34), card("RTX A6000", "smooth", "LOW", 0.49)], "RTX A6000"],
+    ["cheapest works", [card("RTX 4090", "works", "HIGH", 0.89), card("RTX A4000", "works", "HIGH", 0.25)], "RTX A4000"],
+    ["nothing fits", [card("RTX A4000", "too-small", "HIGH", 0.25), card("RTX A5000", "sold-out", "NONE", 0.27)], undefined],
+  ])("fallback: %s", (_, cards, name) => {
+    expect(recommend(cards)?.name).toBe(name);
+  });
+});
+
+describe("QUICK", () => {
+  it("valid", () => {
+    expect(QUICK.map((q) => q.purpose)).toEqual(["Everyday questions", "Writing & email", "Hard problems", "Coding", "Fast & cheap"]);
+    expect(QUICK.every((q) => PRESETS.some((p) => p.id === q.id))).toBe(true);
+    expect(QUICK.filter((q) => q.think).map((q) => q.purpose)).toEqual(["Hard problems"]);
+  });
+});
+
+describe("sizeBand", () => {
+  it.each([
+    ["Qwen3.5-4B", "S"],
+    ["Qwen3.5-9B", "M"],
+    ["gpt-oss-20b", "L"],
+  ])("%s → %s", (name, band) => {
+    expect(sizeBand(PRESETS.find((p) => p.label === name)!.params)).toBe(band);
+  });
+});
+
+describe("thinks", () => {
+  const info = (config: HfInfo["config"]): HfInfo => ({ id: "x/y", config });
+
+  it.each<[string, HfInfo, boolean]>([
+    ["enable_thinking", info({ tokenizer_config: { chat_template: "{% if enable_thinking %}{% endif %}" } }), true],
+    ["template list with <think>", info({ tokenizer_config: { chat_template: [{ name: "default", template: "<think>\n" }] } }), true],
+    ["jinja with reasoning_effort", info({ chat_template_jinja: "{{ reasoning_effort }}" }), true],
+    ["plain", info({ tokenizer_config: { chat_template: "{{ messages }}" } }), false],
+  ])("%s", (_, i, want) => {
+    expect(thinks(i)).toBe(want);
+  });
+});
+
+describe("filterModels", () => {
+  const rows = [
+    { id: "google/Big", params: { BF16: 27e9 }, gated: false, thinks: false, price: 1.79 },
+    { id: "Qwen/Mid", params: { BF16: 9e9 }, gated: false, thinks: true, price: 0.59 },
+    { id: "meta-llama/Gated", params: { BF16: 8e9 }, gated: "manual", thinks: false, price: 0.59 },
+    { id: "Qwen/Huge", params: { BF16: 400e9 }, gated: false, thinks: false, price: null },
+  ];
+  const ANY: ModelFilter = { size: "", maxPrice: 0, maker: "", thinking: false, hideGated: false, sort: "used" };
+  const names = (f: Partial<ModelFilter>) => filterModels(rows, { ...ANY, ...f }).map((r) => r.id.split("/")[1]);
+
+  it.each<[string, Partial<ModelFilter>, string[]]>([
+    ["size L", { size: "L" }, ["Big", "Huge"]],
+    ["under $1/hr", { maxPrice: 1 }, ["Mid", "Gated"]],
+    ["maker google", { maker: "google" }, ["Big"]],
+    ["thinking", { thinking: true }, ["Mid"]],
+    ["hide gated", { hideGated: true }, ["Big", "Mid", "Huge"]],
+    ["cheapest first", { sort: "cheap" }, ["Mid", "Gated", "Big", "Huge"]],
+  ])("%s", (_, f, want) => {
+    expect(names(f)).toEqual(want);
+  });
+});
+
+describe("newConfig", () => {
+  it("defaults", () => {
+    const a40 = card("A40", "smooth", "HIGH", 0.59);
+
+    const c = newConfig(Q9, a40);
+    const custom = newConfig(Q9, a40, { think: true, idleMin: 0 });
+
+    expect(c).toMatchObject({
+      name: "Qwen3.5-9B · A40",
+      id: "Qwen/Qwen3.5-9B",
+      params: Q9.params,
+      gpuId: "NVIDIA A40",
+      gpuName: "A40",
+      cloud: "SECURE",
+      disk: 30,
+      idleMin: 10,
+      price: 0.59,
+      vram: 48,
+      pastPodIds: [],
+      spentPast: 0,
+    });
+    expect(c.key).toMatch(/^[0-9a-f-]{36}$/);
+    expect(Object.keys(c)).not.toContain("label"); // preset display fields stay out of the saved config
+    expect(custom).toMatchObject({ think: true, idleMin: 0 });
   });
 });
 

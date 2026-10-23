@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, nextTick } from "vue";
-import { label, ago, usd, offText, allDay, volumePerMo, spendTotals, type Cloud, type Config, type GpuCard, type Pod } from "../cost";
+import { moveTo, ago, usd, offText, allDay, volumePerMo, spendTotals, type Cloud, type Config, type GpuCard, type Pod } from "../cost";
 import type { Fleet } from "../fleet";
 import Chat from "./Chat.vue";
 import Details from "./Details.vue";
@@ -98,10 +98,7 @@ function changeGpu() {
   picking.value = true;
 }
 function useGpu() {
-  const c = props.config!;
-  const g = pick.value!;
-  if (c.name === `${label(c.id)} · ${c.gpuName}`) c.name = `${label(c.id)} · ${g.name}`; // auto names follow the GPU
-  Object.assign(c, { gpuId: g.id, gpuName: g.name, cloud: pickCloud.value, location: pickLocation.value || undefined, price: g.price, vram: g.memory });
+  moveTo(props.config!, pick.value!, pickCloud.value, pickLocation.value);
   picking.value = false;
 }
 

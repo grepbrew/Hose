@@ -2,7 +2,7 @@
 // Run the `screen run:` line from tests/TEST_CASES.md: it starts the mock dev server, waits for it, then pipes this file.
 //
 // steps:
-//   1. open /?seed=none 2. click New pod 3. click Small 4. click Qwen3-4B-Instruct 5. click RTX 4090 6. click Turn on · RTX 4090 7. expect On
+//   1. open /?seed=none 2. click New pod 3. click Choose a model yourself 4. click Qwen3-4B-Instruct 5. click RTX 4090 6. click Turn on · RTX 4090 7. expect On
 //
 // One TaskSpace per run; pass/fail comes from the snapshot assertion. The PNG is evidence only.
 const BASE = "http://localhost:5199"; // must equal `base:` in TEST_CASES.md. process.env is NOT passed into ego's node runtime.
@@ -15,7 +15,7 @@ const page = task.page("p1");
 // act
 await page.goto(`${BASE}/?seed=none`, { waitUntil: "load" });
 await page.click("loc=role:button[name='New pod']", { label: "new pod" });
-await page.click('text="Small"', { label: "small models" });
+await page.click('text="Choose a model yourself"', { label: "choose a model" });
 await page.click("text=Qwen3-4B-Instruct", { label: "pick curated model" });
 await page.click("text=RTX 4090", { label: "pick RTX 4090 card" });
 await page.click("text=Turn on · RTX 4090", { label: "turn on" });

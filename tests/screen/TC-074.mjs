@@ -2,7 +2,7 @@
 // Run the `screen run:` line from tests/TEST_CASES.md: it starts the mock dev server, waits for it, then pipes this file.
 //
 // steps:
-//   1. open /?seed=none 2. click New pod 3. click Small 4. click Qwen3-4B-Instruct 5. select Location = EU Romania 1 6. click Save only
+//   1. open /?seed=none 2. click New pod 3. click Choose a model yourself 4. click Qwen3-4B-Instruct 5. click More options 6. select Location = EU Romania 1 7. click Save only
 //
 // One TaskSpace per run; pass/fail comes from the snapshot assertion. The PNG is evidence only.
 const BASE = "http://localhost:5199"; // must equal `base:` in TEST_CASES.md. process.env is NOT passed into ego's node runtime.
@@ -16,8 +16,9 @@ const cards = () => page.evaluate(() => [...document.querySelectorAll(".grid .pi
 // act
 await page.goto(`${BASE}/?seed=none`, { waitUntil: "load" });
 await page.click("loc=role:button[name='New pod']", { label: "new pod" });
-await page.click('text="Small"', { label: "small models" });
+await page.click('text="Choose a model yourself"', { label: "choose a model" });
 await page.click("text=Qwen3-4B-Instruct", { label: "pick curated model" });
+await page.click('text="More options"', { label: "more options" });
 await page.waitForSelector("select[aria-label=Location]", { state: "visible", timeout: 10000 }).catch(() => {});
 await page.selectOption("select[aria-label=Location]", { label: "EU Romania 1" });
 const here = await cards();

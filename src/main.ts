@@ -27,7 +27,9 @@ if (import.meta.env.DEV && import.meta.env.VITE_MOCK) {
     last:{ dataCenter: "EU Romania 1", vcpu: 9, memoryGb: 50, diskGb: 42, image: "vllm/vllm-openai:v0.32.0", startedAt: "2026-10-21T09:00:00Z", runSpend: 0 },
   };
   const vol1 = { volumeId: "vol1", volumeDc: "US-TX-3", volumeGb: 25 }; // the model kept on a network volume
-  const models = { off: [qwen], on: [{ ...qwen, podId: "pod1" }], two: [{ ...qwen, podId: "pod1" }, mistral], starting: [{ ...qwen, podId: "pod1" }], stored: [{ ...qwen, ...vol1 }], stuck: [{ ...qwen, podId: "pod1" }], storedOn: [{ ...qwen, ...vol1, podId: "pod1" }] }[name ?? ""];
+  // the quick start's Everyday questions model, saved and off
+  const q9 = { key: "k-q9", name: "Qwen3.5-9B · A40", id: "Qwen/Qwen3.5-9B", params: { BF16: 9653100528, F32: 3840 }, gpuId: "NVIDIA A40", gpuName: "A40", cloud: "SECURE", idleMin: 10, price: 0.59, vram: 48, pastPodIds: [], spentPast: 0, volumeId: "vol1", volumeDc: "US-TX-3", volumeGb: 30 };
+  const models = { off: [qwen], on: [{ ...qwen, podId: "pod1" }], two: [{ ...qwen, podId: "pod1" }, mistral], starting: [{ ...qwen, podId: "pod1" }], stored: [{ ...qwen, ...vol1 }], stuck: [{ ...qwen, podId: "pod1" }], storedOn: [{ ...qwen, ...vol1, podId: "pod1" }], presetOff: [q9] }[name ?? ""];
   if (models) localStorage.setItem("hose.models", JSON.stringify(models));
   else if (name) localStorage.removeItem("hose.models");
   for (const k of ["hose.sel", "hose.details", "hose.theme"]) if (name) localStorage.removeItem(k);

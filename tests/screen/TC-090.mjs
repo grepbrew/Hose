@@ -2,7 +2,7 @@
 // Run the `screen run:` line from tests/TEST_CASES.md: it starts the mock dev server, waits for it, then pipes this file.
 //
 // steps:
-//   1. open /?seed=none 2. click New pod 3. click Qwen3.5-4B 4. click RTX 4090 5. select Never in Turns off after 6. expect Stays on 24/7
+//   1. open /?seed=none 2. click New pod 3. click Choose a model yourself 4. click Qwen3.5-4B 5. click RTX 4090 6. click More options 7. select Never in Turns off after 8. expect Stays on 24/7
 //
 // One TaskSpace per run; pass/fail comes from the snapshot assertion. The PNG is evidence only.
 const BASE = "http://localhost:5199"; // must equal `base:` in TEST_CASES.md. process.env is NOT passed into ego's node runtime.
@@ -15,10 +15,11 @@ const page = task.page("p1");
 // act
 await page.goto(`${BASE}/?seed=none`, { waitUntil: "load" });
 await page.click("loc=role:button[name='New pod']", { label: "new pod" });
-await page.click('text="Small"', { label: "small models" });
+await page.click('text="Choose a model yourself"', { label: "choose a model" });
 await page.click("text=Qwen3.5-4B >> nth=0", { label: "pick model" });
 await page.waitForSelector("text=RTX 4090", { state: "visible", timeout: 10000 }).catch(() => {});
 await page.click("text=RTX 4090 >> nth=0", { label: "pick GPU" });
+await page.click('text="More options"', { label: "more options" });
 await page.selectOption("select#idle", { label: "Never" });
 
 // assert: RTX 4090 at $0.89/hr all day = $21.36/day, × 730 h = $650/month; the button names the 24/7 cost

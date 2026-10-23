@@ -17,6 +17,7 @@ export const state = {
   silent: "", // a pod RunPod's host never started: its log stream has no lines (seed stuck)
   lastChat: null as Record<string, any> | null, // last POST /v1/chat/completions body
   served: 0, // vLLM's finished-request count in /metrics
+  soldOut: false, // every GPU's stock NONE (seed soldOut)
 };
 
 // Fields a running GPU pod carries in GET /v2/pods (Pod schema in api.runpod.io/v2/openapi.json).
@@ -50,6 +51,8 @@ export function seed(name: string | null) {
   state.silent = "";
   state.lastChat = null;
   state.served = 0;
+  state.soldOut = name === "soldOut";
+  if (name === "presetOff") state.volumes.push({ id: "vol1", name: "hose-qwen3-5-9b", size: 30, dataCenter: "US-TX-3", type: "STANDARD" });
   if (name === "stored" || name === "storedOn") state.volumes.push({ id: "vol1", name: "hose-qwen3-8b", size: 25, dataCenter: "US-TX-3", type: "STANDARD" });
   if (name === "on" || name === "two" || name === "storedOn") {
     state.pods.push(pod("pod1", "hose-qwen3-8b", "NVIDIA RTX 4090", 0.89, 21));
@@ -71,6 +74,8 @@ export function seed(name: string | null) {
 
 // GET /api/models?search= with expand[]: id, pipeline_tag, downloads, gated, safetensors, config (live shape 2026-10-23)
 const CHAT_CONFIG = { tokenizer_config: { chat_template: "{{ messages }}" } };
+// a template with a thinking switch, as Qwen3 and the DeepSeek-R1 distills carry
+const THINK_CONFIG = { tokenizer_config: { chat_template: "{{ messages }}{% if enable_thinking %}<think>\n{% endif %}" } };
 const hfModel = (id: string, pipeline_tag: string | null, downloads: number, params: number | null, gated: boolean | string = false, config: object = CHAT_CONFIG) => ({
   id,
   pipeline_tag,
@@ -83,11 +88,13 @@ const hfModel = (id: string, pipeline_tag: string | null, downloads: number, par
 const expand = <T extends { config?: object }>(request: Request, { config, ...m }: T) =>
   new URL(request.url).searchParams.getAll("expand[]").includes("config") ? { ...m, config } : m;
 const HF_MODELS = [
-  hfModel("deepseek-ai/DeepSeek-R1-Distill-Qwen-7B", "text-generation", 1316000, 7615616512),
+  hfModel("deepseek-ai/DeepSeek-R1-Distill-Qwen-7B", "text-generation", 1316000, 7615616512, false, THINK_CONFIG),
   hfModel("deepseek-ai/DeepSeek-OCR", "image-text-to-text", 2092524, 3336106240, false, {}), // live: no chat template
   hfModel("antirez/deepseek-v4.1-flash-gguf", null, 1420082, null),
   hfModel("deepseek-ai/Janus-Pro-7B", "any-to-any", 90000, 7420000000),
   hfModel("black-forest-labs/FLUX.1-schnell", "text-to-image", 700000, 11.9e9),
+  hfModel("Qwen/Qwen3-8B", "text-generation", 9100000, 8190735360, false, THINK_CONFIG),
+  hfModel("Qwen/Qwen3-Embedding-0.6B", "feature-extraction", 5200000, 595776512),
 ];
 
 const gpu = (name: string, memory: number, secure: number | null, community: number | null, availability = "HIGH", dataCenters: [string, string][] = []) => ({
@@ -171,7 +178,9 @@ export const handlers = [
     denied(request)
       ? unauthorized()
       : HttpResponse.json({
-          gpus: new URL(request.url).searchParams.get("cloud") === "COMMUNITY" ? GPUS.map(({ dataCenters, ...g }) => g) : GPUS,
+          gpus: (state.soldOut ? GPUS.map((g) => ({ ...g, availability: "NONE", dataCenters: g.dataCenters?.map((d) => ({ ...d, availability: "NONE" })) })) : GPUS).map((g) =>
+            new URL(request.url).searchParams.get("cloud") === "COMMUNITY" ? (({ dataCenters, ...rest }) => rest)(g) : g,
+          ),
         }),
   ),
   http.get(`${REST}/catalog/datacenters`, ({ request }) =>
@@ -255,9 +264,13 @@ export const handlers = [
   }),
   http.get("https://*.proxy.runpod.net/metrics", () => HttpResponse.text(metrics(state.served))),
   http.get("https://huggingface.co/api/whoami-v2", () => HttpResponse.json({ name: "tester" })),
+  // like the live API: search matches the repo id, author the owner, sort=downloads is most downloaded first
   http.get("https://huggingface.co/api/models", ({ request }) => {
-    const q = (new URL(request.url).searchParams.get("search") ?? "").toLowerCase();
-    return HttpResponse.json(HF_MODELS.filter((m) => m.id.toLowerCase().includes(q)).map((m) => expand(request, m)));
+    const p = new URL(request.url).searchParams;
+    const q = (p.get("search") ?? "").toLowerCase();
+    const found = HF_MODELS.filter((m) => m.id.toLowerCase().includes(q) && (!p.get("author") || m.id.startsWith(`${p.get("author")}/`)));
+    if (p.get("sort") === "downloads") found.sort((a, b) => b.downloads - a.downloads);
+    return HttpResponse.json(found.map((m) => expand(request, m)));
   }),
   // gated-model licence check (hfCanDownload)
   http.head("https://huggingface.co/:org/:name/resolve/main/config.json", () => new HttpResponse(null, { status: 200 })),

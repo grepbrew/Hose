@@ -5,12 +5,14 @@ import { getBalance, listHosePods, podReady, chatStream, podLogs, hfSearch, hfMo
 
 const server = setupServer(...handlers);
 let calls: string[] = [];
-server.events.on("request:start", ({ request }) => void calls.push(new URL(request.url).pathname));
+let urls: string[] = [];
+server.events.on("request:start", ({ request }) => void (calls.push(new URL(request.url).pathname), urls.push(request.url)));
 beforeAll(() => server.listen({ onUnhandledFrame: "error" }));
 afterAll(() => server.close());
 beforeEach(() => {
   seed("on");
   calls = [];
+  urls = [];
 });
 
 describe("getBalance", () => {
@@ -101,7 +103,16 @@ describe("hfSearch", () => {
     const found = await hfSearch("deepseek", "");
 
     // DeepSeek-OCR is image-text-to-text but has no chat template, so vLLM can't chat with it
-    expect(found).toEqual([{ id: "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B", params: { BF16: 7615616512 }, downloads: 1316000, gated: false }]);
+    expect(found).toEqual([{ id: "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B", params: { BF16: 7615616512 }, downloads: 1316000, gated: false, thinks: true }]);
+  });
+
+  it("author sort", async () => {
+    const found = await hfSearch("", "", { author: "Qwen", sort: "trendingScore" });
+
+    const q = new URL(urls.find((u) => u.includes("/api/models?"))!).searchParams;
+    expect([q.get("author"), q.get("sort")]).toEqual(["Qwen", "trendingScore"]);
+    // the embedding model isn't a chat model
+    expect(found).toEqual([{ id: "Qwen/Qwen3-8B", params: { BF16: 8190735360 }, downloads: 9100000, gated: false, thinks: true }]);
   });
 });
 

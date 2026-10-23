@@ -2,7 +2,7 @@
 // Run the `screen run:` line from tests/TEST_CASES.md: it starts the mock dev server, waits for it, then pipes this file.
 //
 // steps:
-//   1. open /?seed=none 2. click New pod 3. click Small 4. click Qwen3-4B-Instruct 5. expect RTX 4090
+//   1. open /?seed=none 2. click New pod 3. click Choose a model yourself 4. click Qwen3-4B-Instruct 5. expect Recommended
 //
 // One TaskSpace per run; pass/fail comes from the snapshot assertion. The PNG is evidence only.
 const BASE = "http://localhost:5199"; // must equal `base:` in TEST_CASES.md. process.env is NOT passed into ego's node runtime.
@@ -11,17 +11,26 @@ const EVIDENCE = "/Users/you/Work/GitHub/gruda/hose/tests/screen/evidence";
 
 const task = await taskSpace(`${TC} screen test`);
 const page = task.page("p1");
+const cards = () => page.evaluate(() => [...document.querySelectorAll(".grid .pick")].map((e) => e.innerText.replace(/\s+/g, " ").trim()));
 
 // act
 await page.goto(`${BASE}/?seed=none`, { waitUntil: "load" });
 await page.click("loc=role:button[name='New pod']", { label: "new pod" });
-await page.click('text="Small"', { label: "small models" });
+await page.click('text="Choose a model yourself"', { label: "choose a model" });
 await page.click("text=Qwen3-4B-Instruct", { label: "pick curated model" });
 
 // assert: the final `expect` step. The app updates asynchronously, so wait (bounded) for the text first.
-await page.waitForSelector('text=RTX 4090', { state: "visible", timeout: 10000 }).catch(() => {});
+await page.waitForSelector("text=Recommended", { state: "visible", timeout: 10000 }).catch(() => {});
+const shown = await cards();
+const order = await page.evaluate(() => [...document.querySelectorAll(".grid .pick strong")].map((e) => e.textContent.trim()).join(","));
 const snap = await page.snapshot({ scope: "full_page" });
-const ok = /RTX A4000[\s\S]*A40[\s\S]*RTX 4090[\s\S]*A100 PCIe/.test(snap) && !snap.includes("RTX A5000");
+console.log(`${TC}: ${shown.join(" | ")}`);
+const ok =
+  order === "A40,RTX 4090,A100 PCIe,RTX A4000" &&
+  shown[0].includes("Recommended") &&
+  shown.filter((c) => c.includes("Recommended")).length === 1 &&
+  shown[3].includes("Works · short chats only") &&
+  snap.includes("Turn on · A40");
 console.log(`${TC}: ${ok ? "PASS" : "FAIL"}`);
 
 try {

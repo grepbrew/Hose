@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { ref, computed, watch } from "vue";
 import { getGpus, getDataCenters } from "../api";
-import { gpuCards, vramNeededGb, label, dcIds, placeName, type Cloud, type DataCenter, type Gpu, type GpuCard, type Model } from "../cost";
+import { gpuCards, recommend, smoothGb, label, dcIds, placeName, regionsOf, type Cloud, type DataCenter, type Gpu, type GpuCard, type Model } from "../cost";
+import Icon from "./Icon.vue";
 
 // The GPU section of New pod and of Change GPU. The parent puts its step badge and title in the slot.
-const props = defineProps<{ apiKey: string; model: Model; cloud: Cloud; location: string; picked?: string }>();
+// compact: the parent shows the cloud and location choices (New pod's More options); this only says what they are.
+const props = defineProps<{ apiKey: string; model: Model; cloud: Cloud; location: string; picked?: string; compact?: boolean }>();
 const emit = defineEmits<{ "update:cloud": [Cloud]; "update:location": [string]; pick: [GpuCard] }>();
 
 const all = ref(false);
@@ -13,26 +15,22 @@ const dcs = ref<DataCenter[]>([]); // stays empty if RunPod's list fails: then t
 const loading = ref(false);
 const error = ref("");
 
+const room = computed(() => smoothGb(props.model.params));
+// Secure only: on a cloud switch the parent clears location a tick after cloud changes
+const cards = computed(() => gpuCards(catalog.value, props.cloud, props.model, dcIds(props.cloud === "SECURE" ? props.location : "", dcs.value)));
+const best = computed(() => recommend(cards.value));
+
+const TIER = ["smooth", "works", "sold-out", "too-small"];
 const SORTS: Record<string, [string, (a: GpuCard, b: GpuCard) => number]> = {
+  rec: ["Recommended first", (a, b) => Number(b.id === best.value?.id) - Number(a.id === best.value?.id) || TIER.indexOf(a.tier) - TIER.indexOf(b.tier) || a.price - b.price],
   price: ["Price, low to high", (a, b) => a.price - b.price],
   "-price": ["Price, high to low", (a, b) => b.price - a.price],
   "-memory": ["GPU memory, most first", (a, b) => b.memory - a.memory || a.price - b.price],
   memory: ["GPU memory, least first", (a, b) => a.memory - b.memory || a.price - b.price],
 };
-const sort = ref("price");
-
-const need = computed(() => vramNeededGb(props.model.params));
-// Secure only: on a cloud switch the parent clears location a tick after cloud changes
-const cards = computed(() => gpuCards(catalog.value, props.cloud, need.value, dcIds(props.cloud === "SECURE" ? props.location : "", dcs.value)));
+const sort = ref("rec");
 const shown = computed(() => (all.value ? cards.value : cards.value.filter((c) => c.fits)).slice().sort(SORTS[sort.value][1]));
-
-// Data centers that offer at least one GPU in the catalog, grouped by region
-const regions = computed(() => {
-  const offered = new Set(catalog.value.flatMap((g) => g.dataCenters?.map((d) => d.id) ?? []));
-  const groups: Record<string, DataCenter[]> = {};
-  for (const d of dcs.value) if (offered.has(d.id)) (groups[d.region] ??= []).push(d);
-  return Object.entries(groups);
-});
+const regions = computed(() => regionsOf(catalog.value, dcs.value));
 
 async function load() {
   loading.value = true;
@@ -51,12 +49,10 @@ watch(
   () => props.cloud,
   (c) => c === "COMMUNITY" && emit("update:location", ""), // Community hosts don't report a location
 );
-// Always have a GPU picked: the cheapest that fits, unless the current pick still fits.
+// Always have a GPU picked: the recommended one, unless the current pick still fits.
 watch([cards, () => props.picked], () => {
-  const fits = cards.value.filter((c) => c.fits);
-  const current = fits.find((c) => c.id === props.picked);
-  if (current) emit("pick", current); // refresh its price after a cloud switch
-  else if (fits[0]) emit("pick", fits[0]);
+  const pick = cards.value.find((c) => c.fits && c.id === props.picked) ?? best.value;
+  if (pick) emit("pick", pick); // the current pick too: refreshes its price after a cloud switch
 });
 
 const STOCK: Record<string, [number, string]> = { HIGH: [3, "Plenty free"], MEDIUM: [2, "Some free"], LOW: [1, "Few free"], NONE: [0, "None free"] };
@@ -65,22 +61,27 @@ const STOCK: Record<string, [number, string]> = { HIGH: [3, "Plenty free"], MEDI
 <template>
   <div class="head">
     <slot />
-    <span class="need muted">{{ label(model.id) }} needs about {{ Math.ceil(need) }} GB of GPU memory</span>
-    <div class="seg" role="group" aria-label="Cloud">
+    <span class="need muted">{{ label(model.id) }} runs smoothly with {{ Math.ceil(room) }} GB of GPU memory or more</span>
+    <div v-if="!compact" class="seg" role="group" aria-label="Cloud">
       <button type="button" :aria-pressed="cloud === 'SECURE'" @click="emit('update:cloud', 'SECURE')">Secure</button>
       <button type="button" :aria-pressed="cloud === 'COMMUNITY'" @click="emit('update:cloud', 'COMMUNITY')">Community</button>
     </div>
   </div>
-  <p class="hint muted">{{ cloud === "SECURE" ? "RunPod's own data centers. More reliable." : "GPUs rented from individual hosts. Cheaper, less reliable." }}</p>
+  <p v-if="compact" class="hint muted">
+    {{ cloud === "SECURE" ? "Secure" : "Community" }} cloud · {{ location ? placeName(location, dcs) : "any location" }}. Change both under More options.
+  </p>
+  <p v-else class="hint muted">{{ cloud === "SECURE" ? "RunPod's own data centers. More reliable." : "GPUs rented from individual hosts. Cheaper, less reliable." }}</p>
   <div class="filters">
-    <select v-if="cloud === 'SECURE' && regions.length" class="field" aria-label="Location" :value="location" @change="emit('update:location', ($event.target as HTMLSelectElement).value)">
-      <option value="">Any location</option>
-      <optgroup v-for="[region, list] in regions" :key="region" :label="placeName(region, dcs)">
-        <option :value="region">Anywhere in {{ placeName(region, dcs) }}</option>
-        <option v-for="d in list" :key="d.id" :value="d.id">{{ placeName(d.id, dcs) }}</option>
-      </optgroup>
-    </select>
-    <span v-else-if="cloud === 'COMMUNITY'" class="muted small">Community hosts don't share their location.</span>
+    <template v-if="!compact">
+      <select v-if="cloud === 'SECURE' && regions.length" class="field" aria-label="Location" :value="location" @change="emit('update:location', ($event.target as HTMLSelectElement).value)">
+        <option value="">Any location</option>
+        <optgroup v-for="[region, list] in regions" :key="region" :label="placeName(region, dcs)">
+          <option :value="region">Anywhere in {{ placeName(region, dcs) }}</option>
+          <option v-for="d in list" :key="d.id" :value="d.id">{{ placeName(d.id, dcs) }}</option>
+        </optgroup>
+      </select>
+      <span v-else-if="cloud === 'COMMUNITY'" class="muted small">Community hosts don't share their location.</span>
+    </template>
     <select v-model="sort" class="field" aria-label="Sort">
       <option v-for="(s, id) in SORTS" :key="id" :value="id">{{ s[0] }}</option>
     </select>
@@ -96,22 +97,28 @@ const STOCK: Record<string, [number, string]> = { HIGH: [3, "Plenty free"], MEDI
   </p>
   <ul v-else class="grid">
     <li v-for="c in shown" :key="c.id">
-      <button type="button" class="pick" :aria-pressed="picked === c.id" :disabled="!c.fits" @click="emit('pick', c)">
+      <button type="button" class="pick" :aria-pressed="picked === c.id" :disabled="!c.fits" :title="c.tps ? `About ${Math.round(c.tps)} tokens a second` : undefined" @click="emit('pick', c)">
         <span class="top">
           <strong>{{ c.name }}</strong>
-          <span class="money">${{ c.price.toFixed(2) }}</span>
+          <span class="right">
+            <span v-if="c.id === best?.id" class="rec"><Icon name="check" :size="11" />Recommended</span>
+            <span class="money">${{ c.price.toFixed(2) }}</span>
+          </span>
         </span>
         <span class="muted mem">{{ c.memory }} GB GPU memory</span>
-        <span class="stock muted" :title="STOCK[c.stock]?.[1]">
-          <span class="bars" aria-hidden="true"><i v-for="i in 3" :key="i" :class="{ on: i <= (STOCK[c.stock]?.[0] ?? 0) }" /></span>
-          {{ c.reason || STOCK[c.stock]?.[1] }}
+        <span class="stock">
+          <span class="note" :class="c.tier === 'smooth' ? 'good' : 'muted'">{{ c.note }}</span>
+          <span class="muted level" :title="STOCK[c.stock]?.[1]">
+            <span class="bars" aria-hidden="true"><i v-for="i in 3" :key="i" :class="{ on: i <= (STOCK[c.stock]?.[0] ?? 0) }" /></span>
+            {{ STOCK[c.stock]?.[1] }}
+          </span>
         </span>
       </button>
     </li>
   </ul>
   <p class="muted small">
-    {{ all ? "Showing every GPU on this cloud." : "Only GPUs that fit this model are shown." }}
-    <button type="button" class="link" @click="all = !all">{{ all ? "Only ones that fit" : "Show all" }}</button>
+    {{ all ? "Showing every GPU, including ones too small or sold out." : "Only GPUs that can run this model are shown. Recommended = the cheapest one that runs it smoothly and has GPUs free." }}
+    <button type="button" class="link" @click="all = !all">{{ all ? "Only ones that run it" : "Show all" }}</button>
   </p>
 </template>
 
@@ -198,11 +205,40 @@ const STOCK: Record<string, [number, string]> = { HIGH: [3, "Plenty free"], MEDI
 .mem {
   font-size: 11.5px;
 }
+.right {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.rec {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--accent);
+  color: var(--accent-ink);
+}
 .stock {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
   font-size: 11px;
+}
+.note {
+  font-weight: 500;
+}
+.good {
+  color: var(--accent);
+}
+.level {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 .bars {
   display: inline-flex;
