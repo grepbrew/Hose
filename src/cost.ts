@@ -45,9 +45,10 @@ export function placeName(location: string, dcs: DataCenter[]) {
   return country ? `${country} (${location})` : location;
 }
 
-export type Model = { id: string; params: Record<string, number>; vision?: boolean }; // vision: reads images (HF image-text-to-text)
+// vision: reads images (HF image-text-to-text). draws: makes pictures from text (HF text-to-image, served by vLLM-Omni)
+export type Model = { id: string; params: Record<string, number>; vision?: boolean; draws?: boolean };
 
-export type Preset = Model & { label: string; blurb: string; tag: string; thinks: boolean; gated?: boolean; active?: number };
+export type Preset = Model & { label: string; blurb: string; tag: string; thinks: boolean; gated?: boolean; active?: number; steps?: number };
 
 // Locked on the signed-off mockup (2026-10-22; Coder added for the quick start 2026-10-23). Params from the HF API;
 // vLLM v0.32.0 registers every architecture here. thinks = thinks() on each repo's chat template (2026-10-23).
@@ -66,21 +67,36 @@ export const PRESETS: Preset[] = [
   { label: "Qwen3-Coder-30B", blurb: "Writes and fixes code", tag: "Qwen", thinks: false, id: "Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8", params: { BF16: 636948480, F8_E4M3: 29896998912 } },
 ];
 
+// Picture models (2026-10-23), all served by vLLM-Omni v0.30.0. params = the transformer's (HF safetensors), steps = what
+// the model card recommends: vLLM-Omni's default (~50) took 55 s a picture on the spike's A40, Z-Image-Turbo at 9 took 12.7 s.
+export const PICTURES: Preset[] = [
+  { label: "Z-Image-Turbo", blurb: "Fast, photo-like pictures", tag: "Alibaba · new", thinks: false, draws: true, steps: 9, id: "Tongyi-MAI/Z-Image-Turbo", params: { F32: 6154908736 } },
+  { label: "FLUX.1-schnell", blurb: "Quick, any style", tag: "Black Forest Labs", thinks: false, draws: true, steps: 4, id: "black-forest-labs/FLUX.1-schnell", params: { BF16: 11891178560 }, gated: true },
+  { label: "Qwen-Image", blurb: "Best with words in the picture", tag: "Qwen", thinks: false, draws: true, id: "Qwen/Qwen-Image", params: { BF16: 20430401088 } },
+];
+
+/** A curated chat or picture model. */
+export const presetOf = (id: string) => [...PRESETS, ...PICTURES].find((p) => p.id === id);
+
 /** New pod's quick start: one card per job, each a preset started in one click on the GPU Hose recommends. */
-export const QUICK: { purpose: string; blurb: string; icon: "chat-circle-dots" | "scan" | "pen-nib" | "brain" | "code" | "lightning"; id: string; think?: boolean }[] = [
+export const QUICK: { purpose: string; blurb: string; icon: "chat-circle-dots" | "scan" | "pen-nib" | "brain" | "code" | "lightning" | "image"; id: string; think?: boolean }[] = [
   { purpose: "Everyday questions", blurb: "Ask anything: plan a trip, explain a letter, compare two options.", icon: "chat-circle-dots", id: "Qwen/Qwen3.5-9B" },
   { purpose: "Read photos & documents", blurb: "Drop in a photo, screenshot or PDF. It reads out the text, tables too.", icon: "scan", id: "Qwen/Qwen3.5-9B" },
   { purpose: "Writing & email", blurb: "Drafts, rewrites and replies in a clear, friendly tone.", icon: "pen-nib", id: "ibm-granite/granite-4.2-8b" },
   { purpose: "Hard problems", blurb: "Thinks step by step before it answers. Slower, more careful.", icon: "brain", id: "Qwen/Qwen3.8-27B", think: true },
   { purpose: "Coding", blurb: "Writes, explains and fixes code in most languages.", icon: "code", id: "Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8" },
   { purpose: "Fast & cheap", blurb: "Quick, short answers at the lowest price.", icon: "lightning", id: "Qwen/Qwen3.5-4B" },
+  { purpose: "Make pictures", blurb: "Describe a picture and get it in seconds. Saved to your Pictures folder.", icon: "image", id: "Tongyi-MAI/Z-Image-Turbo" },
 ];
 
 /** Short display name: the curated label, else the repo name. */
-export const label = (id: string) => PRESETS.find((p) => p.id === id)?.label ?? id.split("/").pop()!;
+export const label = (id: string) => presetOf(id)?.label ?? id.split("/").pop()!;
 
 /** The model reads images. Configs saved before the flag existed fall back to the preset's. */
 export const seesImages = (m: Model) => m.vision ?? !!PRESETS.find((p) => p.id === m.id)?.vision;
+
+/** Denoising steps for a picture model: the preset's, else undefined (vLLM-Omni's default). */
+export const stepsOf = (id: string) => presetOf(id)?.steps;
 
 // ponytail: F32 counted as 2 bytes because vLLM loads weights in bf16 by default.
 // U8/I8 counted as 1 byte, so packed 4-bit weights (gpt-oss MXFP4) are over-estimated: safe side.
@@ -89,11 +105,19 @@ const BYTES: Record<string, number> = { F32: 2, BF16: 2, F16: 2, F8_E4M3: 1, F8_
 export const weightsGb = (params: Record<string, number>) =>
   Object.entries(params).reduce((sum, [dtype, n]) => sum + n * (BYTES[dtype] ?? 2), 0) / 1e9;
 
-// weights + 20% runtime overhead + 2 GB KV cache for an 8k context
-export const vramNeededGb = (params: Record<string, number>) => weightsGb(params) * 1.2 + 2;
+/**
+ * GPU memory for a picture model: HF counts only the transformer, so ×1.6 guesses the text encoder and VAE beside it,
+ * +6 GB for the activations. Z-Image-Turbo: 25.7 GB (spike peak 24.2), FLUX.1-schnell 44, Qwen-Image 71.
+ * ponytail: a guess from the transformer alone; sum the repo's file sizes (HF tree API) if a model lands on a too-small GPU.
+ */
+const drawGb = (params: Record<string, number>) => weightsGb(params) * 1.6 + 6;
 
-/** GPU memory to run the model smoothly: weights + 20% runtime overhead + 8 GB of KV cache, room for long chats. */
-export const smoothGb = (params: Record<string, number>) => weightsGb(params) * 1.2 + 8;
+// weights + 20% runtime overhead + 2 GB KV cache for an 8k context
+export const vramNeededGb = (params: Record<string, number>, draws = false) => (draws ? drawGb(params) : weightsGb(params) * 1.2 + 2);
+
+/** GPU memory to run the model smoothly: weights + 20% runtime overhead + 8 GB of KV cache, room for long chats.
+ * A picture model has no chat to grow: what it needs is all it needs. */
+export const smoothGb = (params: Record<string, number>, draws = false) => (draws ? drawGb(params) : weightsGb(params) * 1.2 + 8);
 
 // Memory bandwidth in GB/s by RunPod's GPU name (vendor spec sheets; names as the live catalog sends them, 2026-10-23).
 // A reply streams one token per pass over the weights, so bandwidth sets reply speed. A MIG slice gets its share.
@@ -155,19 +179,21 @@ const STOCK_RANK = ["NONE", "LOW", "MEDIUM", "HIGH"];
  */
 export function gpuCards(catalog: Gpu[], cloud: Cloud, model: Model, ids: string[] = []): GpuCard[] {
   const key = cloud === "SECURE" ? "secure" : "community";
-  const need = vramNeededGb(model.params);
-  const room = smoothGb(model.params);
+  const need = vramNeededGb(model.params, model.draws);
+  const room = smoothGb(model.params, model.draws);
   return catalog
     .filter((g) => g[key] && g.price[key] && (!ids.length || g.dataCenters?.some((d) => ids.includes(d.id))))
     .map((g): GpuCard => {
       const here = g.dataCenters?.filter((d) => ids.includes(d.id)).map((d) => d.availability) ?? [];
       const stock = ids.length ? here.reduce((a, b) => (STOCK_RANK.indexOf(b) > STOCK_RANK.indexOf(a) ? b : a)) : (g.availability ?? "NONE");
       const reason = g.memory < need ? "Too small" : stock === "NONE" ? "Sold out" : "";
-      const tps = tokPerSec(g.name, model);
-      const smooth = g.memory >= room && !!tps && tps >= SMOOTH_TPS;
+      // pictures stream no tokens: a GPU that fits runs the model at its speed, so it's the pick
+      const tps = model.draws ? null : tokPerSec(g.name, model);
+      const smooth = model.draws ? g.memory >= room : g.memory >= room && !!tps && tps >= SMOOTH_TPS;
       const tier = reason === "Too small" ? "too-small" : reason ? "sold-out" : smooth ? "smooth" : "works";
-      const note =
-        reason || (smooth ? (tps! >= FAST_TPS ? "Fast replies" : "Smooth") : g.memory < room ? "Works · short chats only" : tps ? "Works · slower replies" : "Works");
+      const note = model.draws
+        ? reason || "Fits"
+        : reason || (smooth ? (tps! >= FAST_TPS ? "Fast replies" : "Smooth") : g.memory < room ? "Works · short chats only" : tps ? "Works · slower replies" : "Works");
       return { id: g.id, name: g.name, memory: g.memory, price: g.price[key]!, stock, fits: !reason, reason, tier, tps, note };
     })
     .sort((a, b) => a.price - b.price);
@@ -197,11 +223,21 @@ export type HfInfo = {
   pipeline_tag?: string;
   gated?: boolean | string;
   safetensors?: { parameters: Record<string, number> };
-  config?: { tokenizer_config?: { chat_template?: unknown }; chat_template_jinja?: string };
+  config?: { tokenizer_config?: { chat_template?: unknown }; chat_template_jinja?: string; diffusers?: { _class_name?: string } };
 };
 
 /** HF pipeline tags Hose can chat with. image-text-to-text models (Qwen3.5, Gemma 4) take text, images or both. */
 export const CHAT_TAGS = ["text-generation", "image-text-to-text"];
+
+/**
+ * Diffusers pipelines vLLM-Omni v0.30.0 serves for text-to-image (vllm_omni/diffusion/registry.py), matched on the
+ * repo's config.diffusers._class_name. ponytail: pinned to that registry; refresh it when OMNI_IMAGE moves.
+ */
+export const T2I_PIPES = [
+  "FluxPipeline", "Flux2Pipeline", "Flux2KleinPipeline", "QwenImagePipeline", "ZImagePipeline", "StableDiffusion3Pipeline",
+  "StableDiffusionXLPipeline", "HiDreamImagePipeline", "LongCatImagePipeline", "OvisImagePipeline", "GlmImagePipeline",
+  "ErnieImagePipeline", "Krea2Pipeline", "HunyuanImage3Pipeline",
+];
 
 /** The chat template has a thinking switch: enable_thinking (Qwen3, Granite, Gemma 4), <think> (DeepSeek-R1), reasoning_effort (gpt-oss). */
 export const thinks = (info: HfInfo) =>
@@ -229,12 +265,15 @@ export function filterModels<R extends Model & { gated?: unknown; thinks?: boole
   return rows.filter(ok).sort((a, b) => (f.sort === "cheap" && price(a) !== price(b) ? price(a) - price(b) : 0));
 }
 
-export type HfReject = "not-chat" | "gated" | "no-weights" | "no-template";
+export type HfReject = "not-chat" | "not-supported" | "gated" | "no-weights" | "no-template";
 
 export function parseHfModel(info: HfInfo, hasToken: boolean): { ok: true; model: Model } | { ok: false; reason: HfReject } {
-  if (!CHAT_TAGS.includes(info.pipeline_tag ?? "")) return { ok: false, reason: "not-chat" };
+  const draws = info.pipeline_tag === "text-to-image";
+  if (draws && !T2I_PIPES.includes(info.config?.diffusers?._class_name ?? "")) return { ok: false, reason: "not-supported" };
+  if (!draws && !CHAT_TAGS.includes(info.pipeline_tag ?? "")) return { ok: false, reason: "not-chat" };
   if (info.gated && !hasToken) return { ok: false, reason: "gated" };
   if (!info.safetensors) return { ok: false, reason: "no-weights" };
+  if (draws) return { ok: true, model: { id: info.id, params: info.safetensors.parameters, draws } };
   // base models carry no chat template; vLLM's /v1/chat/completions refuses them
   if (!info.config?.tokenizer_config?.chat_template && !info.config?.chat_template_jinja) return { ok: false, reason: "no-template" };
   const vision = info.pipeline_tag === "image-text-to-text";
@@ -243,10 +282,17 @@ export function parseHfModel(info: HfInfo, hasToken: boolean): { ok: true; model
 
 // CUDA 13.0 build. The -cu129 tag crash-loops: its torchcodec wants libnvrtc.so.13 (spike 2026-10-22).
 export const VLLM_IMAGE = "vllm/vllm-openai:v0.32.0";
+// Picture models: vLLM-Omni, built on vllm-openai v0.30.0; booted with minCudaVersion 13.0 on the 2026-10-23 spike.
+export const OMNI_IMAGE = "vllm/vllm-omni:v0.30.0";
+/** The server image a model's pods run. */
+export const imageOf = (m: Model) => (m.draws ? OMNI_IMAGE : VLLM_IMAGE);
 
 /** Recommended model storage (the network volume, or the container disk without one): the model files plus 10% and
  * 5 GB for vLLM's compile cache; rounded up to 5 GB, at least RunPod's 10 GB volume floor. */
-export const diskGb = (params: Record<string, number>) => Math.max(10, Math.ceil((weightsGb(params) * 1.1 + 5) / 5) * 5);
+export const diskGb = (params: Record<string, number>, draws = false) =>
+  // a picture repo also holds its text encoder and VAE: Z-Image-Turbo downloaded 31 GB for 12.3 GB of transformer (spike).
+  // ponytail: ×2.5 from that one repo; a repo that ships extra single-file copies may need more, raise it then
+  Math.max(10, Math.ceil(((draws ? weightsGb(params) * 2.5 + 10 : weightsGb(params) * 1.1 + 5)) / 5) * 5);
 
 /** A network volume costs $0.07/GB/month under 1 TB, on or off (docs.runpod.io/pods/pricing, 2026-10-22). */
 export const volumePerMo = (gb: number) => gb * 0.07;
@@ -271,7 +317,7 @@ export const budgetMin = (budget: number | undefined, pricePerHr: number | undef
 export const allDay = (pricePerHr: number) => ({ day: pricePerHr * 24, month: pricePerHr * 730 });
 
 /** A storage size someone typed: rounded up to 5 GB, never below the recommendation. */
-export const fitDisk = (gb: number, params: Record<string, number>) => Math.max(diskGb(params), Math.ceil(gb / 5) * 5 || 0);
+export const fitDisk = (gb: number, params: Record<string, number>, draws = false) => Math.max(diskGb(params, draws), Math.ceil(gb / 5) * 5 || 0);
 
 const slug = (id: string) => id.split("/").pop()!.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40);
 /** hose-qwen3-8b: the name of a model's pods and network volume. */
@@ -290,14 +336,14 @@ export function podInput(
   apiKey: string,
   idleMin: number,
   watchdog: string,
-  disk = diskGb(model.params),
+  disk = diskGb(model.params, model.draws),
   dataCenterIds: string[] = [],
   maxMin = 0,
   volumeId = "",
 ) {
   return {
     name: hoseName(model.id),
-    image: VLLM_IMAGE,
+    image: imageOf(model),
     gpu: { id: gpuId, count: 1, minCudaVersion: "13.0" },
     cloud,
     ...(dataCenterIds.length ? { dataCenterIds } : {}),
@@ -319,7 +365,7 @@ export function podInput(
       "-c",
       // no exec: if vLLM dies the container stays up and this watchdog deletes the pod. A container restart would
       // start a fresh watchdog with a fresh boot timer, so a crash loop could bill forever.
-      'python3 -c "$HOSE_WATCHDOG" & vllm serve "$MODEL" --port 8000 --api-key "$HOSE_KEY" --max-model-len auto; sleep infinity',
+      `python3 -c "$HOSE_WATCHDOG" & vllm serve "$MODEL" ${model.draws ? "--omni " : ""}--port 8000 --api-key "$HOSE_KEY"${model.draws ? "" : " --max-model-len auto"}; sleep infinity`,
     ],
   };
 }
@@ -368,11 +414,15 @@ export function replyStats(usage: Usage, firstMs: number, genMs: number) {
   return [`${usage.prompt_tokens} in`, `${usage.completion_tokens} out`, ...speed, `${(firstMs / 1000).toFixed(1)} s to first token`].join(" · ");
 }
 
-/** vLLM /metrics read like the on-pod watchdog does: requests running + waiting, and requests finished so far. */
+/**
+ * vLLM /metrics read like the on-pod watchdog does: requests running + waiting, and requests finished so far.
+ * A picture pod (vLLM-Omni) has its own names and no success counter; its latency histogram counts finished requests.
+ */
 export function vllmLoad(text: string) {
   const total = (name: string) =>
     [...text.matchAll(new RegExp(`^${name}(?:\\{[^}]*\\})? (\\S+)`, "gm"))].reduce((sum, m) => sum + Number(m[1]), 0);
-  return { busy: total("vllm:num_requests_running") + total("vllm:num_requests_waiting"), done: total("vllm:request_success_total") };
+  const busy = ["vllm:num_requests_running", "vllm:num_requests_waiting", "vllm_omni:num_requests_running", "vllm_omni:num_requests_waiting"];
+  return { busy: busy.reduce((sum, n) => sum + total(n), 0), done: total("vllm:request_success_total") + total("vllm_omni:e2e_request_latency_s_count") };
 }
 
 // ponytail: covers tqdm (\r-separated updates) and colour codes; other terminal escapes pass through as-is
@@ -443,10 +493,11 @@ export const newConfig = (m: Model, g: GpuCard, over: Partial<Config> = {}): Con
   id: m.id,
   params: m.params,
   vision: m.vision,
+  draws: m.draws,
   gpuId: g.id,
   gpuName: g.name,
   cloud: "SECURE",
-  disk: diskGb(m.params),
+  disk: diskGb(m.params, m.draws),
   idleMin: 10,
   price: g.price,
   vram: g.memory,

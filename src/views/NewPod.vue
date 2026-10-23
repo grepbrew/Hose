@@ -3,6 +3,7 @@ import { ref, computed, watch } from "vue";
 import { getGpus, getDataCenters, hfSearch, hfModelInfo, hfCanDownload, type HfHit } from "../api";
 import {
   PRESETS,
+  PICTURES,
   parseHfModel,
   seesImages,
   label,
@@ -50,7 +51,7 @@ const PRICES = [
   [2, "Under $2/hr"],
 ] as const;
 // Hugging Face owner → the maker people know
-const MAKERS: Record<string, string> = { Qwen: "Qwen", "meta-llama": "Meta", google: "Google", microsoft: "Microsoft", "ibm-granite": "IBM", openai: "OpenAI", "deepseek-ai": "DeepSeek", mistralai: "Mistral" };
+const MAKERS: Record<string, string> = { Qwen: "Qwen", "meta-llama": "Meta", google: "Google", microsoft: "Microsoft", "ibm-granite": "IBM", openai: "OpenAI", "deepseek-ai": "DeepSeek", mistralai: "Mistral", "Tongyi-MAI": "Alibaba", "black-forest-labs": "Black Forest Labs" };
 const SORTS = [
   ["downloads", "Most used"],
   ["trendingScore", "Trending"],
@@ -62,6 +63,9 @@ const downloads = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1
 
 // Quick start cards first; "Choose a model yourself" swaps in the browser below.
 const advanced = ref(false);
+// the browser lists chat models, or with Pictures on, models that make pictures (served by vLLM-Omni)
+const pictures = ref(false);
+const kind = computed(() => (pictures.value ? "picture" : "chat"));
 
 // ① Model
 const model = ref<Model>(PRESETS.find((p) => p.label === "Qwen3.5-9B")!);
@@ -70,7 +74,8 @@ const locked = (gated: unknown) => !!gated && !props.hfToken;
 const GATED = "This model is gated. Add a Hugging Face token under Settings › Keys first.";
 const WHY: Record<HfReject, string> = {
   gated: GATED,
-  "not-chat": "That's not a chat model. Hose runs chat models only.",
+  "not-chat": "That's not a chat or picture model. Hose runs those only.",
+  "not-supported": "Hose can't make pictures with this model yet: vLLM-Omni doesn't run it. Try one of Hose's picks.",
   "no-weights": "That model has no safetensors weights, so Hose can't size or run it.",
   "no-template": "That model has no chat template (likely a base model). Pick its Instruct or chat version.",
 };
@@ -78,13 +83,18 @@ const WHY: Record<HfReject, string> = {
 async function choose(m: Model, gated: unknown) {
   error.value = "";
   if (locked(gated)) return void (error.value = GATED);
-  if (gated && !(await hfCanDownload(m.id, props.hfToken)))
+  if (gated && !(await hfCanDownload(m.id, props.hfToken, m.draws)))
     return void (error.value = `Accept the licence on huggingface.co/${m.id} with your Hugging Face account, then pick it again.`);
-  model.value = { id: m.id, params: m.params, vision: m.vision };
+  model.value = { id: m.id, params: m.params, vision: m.vision, draws: m.draws };
+  pictures.value = !!m.draws;
   gpu.value = null; // the picker picks this model's recommended GPU
   name.value = null;
   disk.value = null;
 }
+// switching the list switches the model too, so the GPU step below prices the right kind
+watch(pictures, (on) => {
+  if (!!model.value.draws !== on) void choose(on ? PICTURES[0] : PRESETS.find((p) => p.label === "Qwen3.5-9B")!, false);
+});
 function customize(p: Model & { gated?: boolean }) {
   advanced.value = true;
   void choose(p, p.gated);
@@ -96,13 +106,13 @@ const results = ref<HfHit[]>([]);
 const searching = ref(false);
 const pasted = computed(() => /^[\w.-]+\/[\w.-]+$/.test(query.value.trim().replace(/^https:\/\/huggingface\.co\//, "")));
 let timer = 0;
-watch([query, () => filter.value.maker, () => filter.value.sort], ([q, author, sort]) => {
+watch([query, () => filter.value.maker, () => filter.value.sort, pictures], ([q, author, sort, draws]) => {
   clearTimeout(timer);
   if (!q.trim()) return void (results.value = []);
   timer = setTimeout(async () => {
     searching.value = true;
     try {
-      results.value = await hfSearch(q.trim(), props.hfToken, { author, sort: sort === "cheap" ? "downloads" : sort });
+      results.value = await hfSearch(q.trim(), props.hfToken, { author, sort: sort === "cheap" ? "downloads" : sort, draws });
     } catch (e) {
       error.value = errorText(e);
     } finally {
@@ -141,7 +151,9 @@ const regions = computed(() => regionsOf(catalog.value, dcs.value));
 // The list: Hose's picks until a search, each priced on the GPU it would get
 type Row = Model & { label: string; downloads: number; gated?: boolean | string; thinks: boolean };
 const rows = computed(() => {
-  const base: Row[] = query.value.trim() ? results.value.map((r) => ({ ...r, label: r.id.split("/")[1] })) : PRESETS.map((p) => ({ ...p, downloads: 0 }));
+  const base: Row[] = query.value.trim()
+    ? results.value.map((r) => ({ ...r, label: r.id.split("/")[1] }))
+    : (pictures.value ? PICTURES : PRESETS).map((p) => ({ ...p, downloads: 0 }));
   const priced = base.map((m) => {
     const cards = gpuCards(catalog.value, cloud.value, m);
     const best = recommend(cards);
@@ -158,12 +170,12 @@ const autoName = computed(() => `${label(model.value.id)} · ${gpu.value?.name ?
 const idleMin = ref(10);
 const budget = ref<number | null>(null); // $ per run; null = no limit
 const allDayCost = computed(() => (idleMin.value || budget.value || !gpu.value ? null : allDay(gpu.value.price))); // set = on 24/7
-const recDisk = computed(() => diskGb(model.value.params));
+const recDisk = computed(() => diskGb(model.value.params, model.value.draws));
 const disk = ref<number | null>(null); // null = follow the model's recommended size
 // Only raising it is allowed: below the recommendation the model may not fit.
 function setDisk(e: Event) {
   const el = e.target as HTMLInputElement;
-  const gb = fitDisk(Number(el.value), model.value.params);
+  const gb = fitDisk(Number(el.value), model.value.params, model.value.draws);
   disk.value = gb > recDisk.value ? gb : null;
   el.value = String(gb);
 }
@@ -213,11 +225,16 @@ async function save(turnOn: boolean) {
             <h2 id="s1" class="fill">Model</h2>
           </div>
 
+          <div class="seg kind" role="group" aria-label="Kind of model">
+            <button type="button" :aria-pressed="!pictures" @click="pictures = false"><Icon name="chat-circle-dots" :size="13" /> Chat</button>
+            <button type="button" :aria-pressed="pictures" @click="pictures = true"><Icon name="image" :size="13" /> Pictures</button>
+          </div>
+
           <div class="search">
             <label for="hf-search">Search Hugging Face</label>
             <div class="input-icon">
               <Icon name="magnifying-glass" class="muted" />
-              <input id="hf-search" v-model="query" class="field" placeholder="Any chat model, or paste owner/model-name" spellcheck="false" autocomplete="off" />
+              <input id="hf-search" v-model="query" class="field" :placeholder="`Any ${kind} model, or paste owner/model-name`" spellcheck="false" autocomplete="off" />
             </div>
           </div>
 
@@ -235,14 +252,16 @@ async function save(turnOn: boolean) {
             <select v-model="filter.sort" class="field" aria-label="Sort models">
               <option v-for="[id, text] in SORTS" :key="id" :value="id">{{ text }}</option>
             </select>
-            <button class="toggle" type="button" :aria-pressed="filter.thinking" @click="filter.thinking = !filter.thinking"><Icon name="brain" :size="14" /> Thinking models</button>
-            <button class="toggle" type="button" :aria-pressed="filter.images" @click="filter.images = !filter.images"><Icon name="scan" :size="14" /> Reads images</button>
+            <template v-if="!pictures">
+              <button class="toggle" type="button" :aria-pressed="filter.thinking" @click="filter.thinking = !filter.thinking"><Icon name="brain" :size="14" /> Thinking models</button>
+              <button class="toggle" type="button" :aria-pressed="filter.images" @click="filter.images = !filter.images"><Icon name="scan" :size="14" /> Reads images</button>
+            </template>
             <button class="toggle" type="button" :aria-pressed="filter.hideGated" @click="filter.hideGated = !filter.hideGated">Hide ones that need a token</button>
           </div>
 
           <div class="results">
             <div class="cols results-head">
-              <span>{{ query.trim() ? "Chat models on Hugging Face" : "Hose's picks" }}</span><span>Maker</span><span>Size</span><span>Used</span><span>Price</span><span>On its best GPU</span>
+              <span>{{ query.trim() ? `${pictures ? "Picture" : "Chat"} models on Hugging Face` : "Hose's picks" }}</span><span>Maker</span><span>Size</span><span>Used</span><span>Price</span><span>On its best GPU</span>
             </div>
             <button v-if="pasted" class="result res" type="button" :disabled="checking" @click="check">
               <span class="id">{{ checking ? "Checking…" : "Check" }} {{ query.trim() }}</span>
@@ -262,7 +281,7 @@ async function save(turnOn: boolean) {
             </button>
             <p v-if="searching && !rows.length" class="none muted">Searching…</p>
             <p v-else-if="!rows.length" class="none muted">
-              {{ query.trim() && !results.length ? "No chat models match. Try another name." : "No model matches these filters. Try a higher price or another size." }}
+              {{ query.trim() && !results.length ? `No ${kind} models match. Try another name.` : "No model matches these filters. Try a higher price or another size." }}
             </p>
           </div>
         </section>
@@ -309,7 +328,8 @@ async function save(turnOn: boolean) {
             <div class="fieldset">
               <label for="disk">Storage (GB)</label>
               <input id="disk" type="number" class="field" :min="recDisk" step="5" :value="disk ?? recDisk" @change="setDisk" />
-              <span class="small muted">Recommended {{ recDisk }} GB: {{ Math.ceil(weightsGb(model.params)) }} GB of model files plus {{ recDisk - Math.ceil(weightsGb(model.params)) }} GB to download and run them.</span>
+              <span v-if="model.draws" class="small muted">Recommended {{ recDisk }} GB for the picture model's files.</span>
+              <span v-else class="small muted">Recommended {{ recDisk }} GB: {{ Math.ceil(weightsGb(model.params)) }} GB of model files plus {{ recDisk - Math.ceil(weightsGb(model.params)) }} GB to download and run them.</span>
             </div>
             <div class="fieldset">
               <label for="idle">Turns off after</label>
@@ -448,6 +468,16 @@ async function save(turnOn: boolean) {
 }
 .input-icon .field {
   padding-left: 34px;
+}
+/* Chat | Pictures: as wide as its two buttons, icon beside the word */
+.kind {
+  align-self: flex-start;
+  width: fit-content;
+}
+.kind button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
 }
 .filters {
   display: flex;

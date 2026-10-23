@@ -3,6 +3,7 @@ import STREAM from "./fixtures/chat-stream.txt?raw";
 import STREAM_TEXT from "./fixtures/chat-stream.expected.txt?raw";
 import THINK_STREAM from "./fixtures/chat-stream-think.txt?raw";
 import METRICS from "./fixtures/vllm-metrics.txt?raw";
+import OMNI_METRICS from "./fixtures/omni-metrics.txt?raw";
 import {
   vramNeededGb,
   parseHfModel,
@@ -31,6 +32,7 @@ import {
   offText,
   allDay,
   PRESETS,
+  presetOf,
   QUICK,
   VLLM_IMAGE,
   smoothGb,
@@ -75,6 +77,21 @@ describe("vramNeededGb", () => {
 
     expect(need).toBeCloseTo((2 + 10) * 1.2 + 2, 5);
   });
+
+  // HF safetensors counts for the picture presets (2026-10-23). Z-Image-Turbo peaked at 24.2 GB on the spike pod.
+  const Z = { F32: 6154908736 };
+  const FLUX = { BF16: 11891178560 };
+  const QWEN = { BF16: 20430401088 };
+
+  it("draws", () => {
+    expect(vramNeededGb(Z, true)).toBeGreaterThan(24.2);
+    expect(vramNeededGb(Z, true)).toBeLessThanOrEqual(32);
+    expect(vramNeededGb(FLUX, true)).toBeGreaterThan(32);
+    expect(vramNeededGb(FLUX, true)).toBeLessThanOrEqual(48);
+    expect(vramNeededGb(QWEN, true)).toBeGreaterThan(48);
+    expect(vramNeededGb(QWEN, true)).toBeLessThanOrEqual(80);
+    expect(smoothGb(QWEN, true)).toBe(vramNeededGb(QWEN, true));
+  });
 });
 
 describe("parseHfModel", () => {
@@ -88,7 +105,7 @@ describe("parseHfModel", () => {
   });
 
   it("not chat", () => {
-    const r = parseHfModel(info({ pipeline_tag: "text-to-image" }), true);
+    const r = parseHfModel(info({ pipeline_tag: "automatic-speech-recognition" }), true);
 
     expect(r).toEqual({ ok: false, reason: "not-chat" });
   });
@@ -124,6 +141,23 @@ describe("parseHfModel", () => {
     const r = parseHfModel(info({ pipeline_tag: "image-text-to-text", safetensors: { parameters: { BF16: 9e9 } } }), true);
 
     expect(r).toEqual({ ok: true, model: { id: "org/m", params: { BF16: 9e9 }, vision: true } });
+  });
+
+  it("not supported", () => {
+    // SD 1.5 is text-to-image, but vLLM-Omni v0.30.0 has no StableDiffusionPipeline
+    const r = parseHfModel(info({ pipeline_tag: "text-to-image", config: { diffusers: { _class_name: "StableDiffusionPipeline" } } }), true);
+
+    expect(r).toEqual({ ok: false, reason: "not-supported" });
+  });
+
+  it("draws", () => {
+    // live HF shape for black-forest-labs/FLUX.1-schnell (2026-10-23): no chat template, a diffusers class name
+    const r = parseHfModel(
+      info({ pipeline_tag: "text-to-image", safetensors: { parameters: { BF16: 11.9e9 } }, config: { diffusers: { _class_name: "FluxPipeline" } } }),
+      true,
+    );
+
+    expect(r).toEqual({ ok: true, model: { id: "org/m", params: { BF16: 11.9e9 }, draws: true } });
   });
 });
 
@@ -319,6 +353,17 @@ describe("podInput", () => {
 
     expect(input.env.HOSE_MAX_MIN).toBe("337"); // $5 at $0.89/hr = 337 min
   });
+
+  it("draws", () => {
+    const z = { id: "Tongyi-MAI/Z-Image-Turbo", params: { F32: 6154908736 }, draws: true };
+
+    const input = podInput(z, "NVIDIA A40", "SECURE", "", "k1", 10, "WD");
+
+    expect(input).toMatchObject({ name: "hose-z-image-turbo", image: "vllm/vllm-omni:v0.30.0", env: { MODEL: z.id, HOSE_WATCHDOG: "WD" } });
+    const cmd = input.entrypoint.join(" ");
+    expect(cmd).toMatch(/python3 -c "\$HOSE_WATCHDOG" & vllm serve "\$MODEL" --omni .*--api-key "\$HOSE_KEY".*; sleep infinity$/);
+    expect(cmd).not.toContain("--max-model-len");
+  });
 });
 
 describe("sseReply", () => {
@@ -372,6 +417,31 @@ describe("vllmLoad", () => {
   it("reads running, waiting and finished", () => {
     // real /metrics lines after 2 chats; the *_by_reason gauges must not count twice
     expect(vllmLoad(METRICS)).toEqual({ busy: 0, done: 2 });
+  });
+
+  it("omni", () => {
+    // real /metrics of a vLLM-Omni picture pod after one picture (spike 2026-10-23): vllm_omni:* names, no vllm:*
+    expect(vllmLoad(OMNI_METRICS)).toEqual({ busy: 0, done: 1 });
+  });
+});
+
+describe("picture GPUs", () => {
+  const z = { id: "Tongyi-MAI/Z-Image-Turbo", params: { F32: 6154908736 }, draws: true };
+
+  it("cards", () => {
+    // no tokens/s for pictures: a GPU that fits is the pick, the cheapest first
+    const cards = gpuCards([gpu("RTX 4090", 24, 0.44, null), gpu("A40", 48, 0.59, null)], "SECURE", z);
+
+    expect(cards.map((c) => [c.name, c.tier, c.note])).toEqual([
+      ["RTX 4090", "too-small", "Too small"],
+      ["A40", "smooth", "Fits"],
+    ]);
+    expect(recommend(cards)?.name).toBe("A40");
+  });
+
+  it("disk", () => {
+    // the spike's Z-Image-Turbo download was 31 GB: 12.3 GB in bf16 × 2.5 + 10 = 40.8 → 45
+    expect(diskGb(z.params, true)).toBe(45);
   });
 });
 
@@ -456,8 +526,8 @@ describe("recommend", () => {
 
 describe("QUICK", () => {
   it("valid", () => {
-    expect(QUICK.map((q) => q.purpose)).toEqual(["Everyday questions", "Read photos & documents", "Writing & email", "Hard problems", "Coding", "Fast & cheap"]);
-    expect(QUICK.every((q) => PRESETS.some((p) => p.id === q.id))).toBe(true);
+    expect(QUICK.map((q) => q.purpose)).toEqual(["Everyday questions", "Read photos & documents", "Writing & email", "Hard problems", "Coding", "Fast & cheap", "Make pictures"]);
+    expect(QUICK.every((q) => presetOf(q.id))).toBe(true);
     expect(QUICK.filter((q) => q.think).map((q) => q.purpose)).toEqual(["Hard problems"]);
   });
 });

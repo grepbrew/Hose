@@ -117,7 +117,7 @@ export function useFleet(key: () => string, vllmKey: () => string, hfToken: () =
   async function turnOn(c: Config) {
     const dcs = await getDataCenters(key());
     const ids = c.location ? dcIds(c.location, dcs) : [];
-    const size = c.disk ?? diskGb(c.params);
+    const size = c.disk ?? diskGb(c.params, c.draws);
     const input = (dcIds: string[], volumeId = "") =>
       podInput(c, c.gpuId, c.cloud, hfToken(), vllmKey(), c.idleMin, WATCHDOG, size, dcIds, budgetMin(c.budget, c.price), volumeId);
     // Community has no volumes, and a new location may leave the volume's data center out

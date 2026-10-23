@@ -1,0 +1,418 @@
+# HELP python_gc_objects_collected_total Objects collected during gc
+# TYPE python_gc_objects_collected_total counter
+python_gc_objects_collected_total{generation="0"} 274615.0
+python_gc_objects_collected_total{generation="1"} 63633.0
+python_gc_objects_collected_total{generation="2"} 39960.0
+# HELP python_gc_objects_uncollectable_total Uncollectable objects found during GC
+# TYPE python_gc_objects_uncollectable_total counter
+python_gc_objects_uncollectable_total{generation="0"} 0.0
+python_gc_objects_uncollectable_total{generation="1"} 0.0
+python_gc_objects_uncollectable_total{generation="2"} 0.0
+# HELP python_gc_collections_total Number of times this generation was collected
+# TYPE python_gc_collections_total counter
+python_gc_collections_total{generation="0"} 3813.0
+python_gc_collections_total{generation="1"} 348.0
+python_gc_collections_total{generation="2"} 17.0
+# HELP python_info Python platform information
+# TYPE python_info gauge
+python_info{implementation="CPython",major="3",minor="12",patchlevel="3",version="3.12.3"} 1.0
+# HELP process_virtual_memory_bytes Virtual memory size in bytes.
+# TYPE process_virtual_memory_bytes gauge
+process_virtual_memory_bytes 6.8750708736e+010
+# HELP process_resident_memory_bytes Resident memory size in bytes.
+# TYPE process_resident_memory_bytes gauge
+process_resident_memory_bytes 2.783531008e+09
+# HELP process_start_time_seconds Start time of the process since unix epoch in seconds.
+# TYPE process_start_time_seconds gauge
+process_start_time_seconds 1.79274286765e+09
+# HELP process_cpu_seconds_total Total user and system CPU time spent in seconds.
+# TYPE process_cpu_seconds_total counter
+process_cpu_seconds_total 311.07
+# HELP process_open_fds Number of open file descriptors.
+# TYPE process_open_fds gauge
+process_open_fds 107.0
+# HELP process_max_fds Maximum number of open file descriptors.
+# TYPE process_max_fds gauge
+process_max_fds 524287.0
+# HELP vllm_omni:num_requests_running Number of requests currently running across all pipeline stages.
+# TYPE vllm_omni:num_requests_running gauge
+vllm_omni:num_requests_running{model_name="Tongyi-MAI/Z-Image-Turbo"} 0.0
+# HELP vllm_omni:num_requests_waiting Number of requests waiting to be scheduled.
+# TYPE vllm_omni:num_requests_waiting gauge
+vllm_omni:num_requests_waiting{model_name="Tongyi-MAI/Z-Image-Turbo"} 0.0
+# HELP vllm_omni:requests_success_total Total requests by completion reason (stop / length / abort / ...). Aborts cover client-disconnect / cancellation paths in addition to upstream FinishReason.ABORT.
+# TYPE vllm_omni:requests_success_total counter
+vllm_omni:requests_success_total{finished_reason="stop",model_name="Tongyi-MAI/Z-Image-Turbo"} 1.0
+# HELP vllm_omni:requests_success_created Total requests by completion reason (stop / length / abort / ...). Aborts cover client-disconnect / cancellation paths in addition to upstream FinishReason.ABORT.
+# TYPE vllm_omni:requests_success_created gauge
+vllm_omni:requests_success_created{finished_reason="stop",model_name="Tongyi-MAI/Z-Image-Turbo"} 1.792743053087375e+09
+# HELP vllm_omni:e2e_request_latency_s Pipeline-global end-to-end request latency in seconds (user arrival to complete response).
+# TYPE vllm_omni:e2e_request_latency_s histogram
+vllm_omni:e2e_request_latency_s_bucket{le="0.05",model_name="Tongyi-MAI/Z-Image-Turbo"} 0.0
+vllm_omni:e2e_request_latency_s_bucket{le="0.1",model_name="Tongyi-MAI/Z-Image-Turbo"} 0.0
+vllm_omni:e2e_request_latency_s_bucket{le="0.25",model_name="Tongyi-MAI/Z-Image-Turbo"} 0.0
+vllm_omni:e2e_request_latency_s_bucket{le="0.5",model_name="Tongyi-MAI/Z-Image-Turbo"} 0.0
+vllm_omni:e2e_request_latency_s_bucket{le="1.0",model_name="Tongyi-MAI/Z-Image-Turbo"} 0.0
+vllm_omni:e2e_request_latency_s_bucket{le="2.0",model_name="Tongyi-MAI/Z-Image-Turbo"} 0.0
+vllm_omni:e2e_request_latency_s_bucket{le="5.0",model_name="Tongyi-MAI/Z-Image-Turbo"} 0.0
+vllm_omni:e2e_request_latency_s_bucket{le="10.0",model_name="Tongyi-MAI/Z-Image-Turbo"} 0.0
+vllm_omni:e2e_request_latency_s_bucket{le="20.0",model_name="Tongyi-MAI/Z-Image-Turbo"} 0.0
+vllm_omni:e2e_request_latency_s_bucket{le="30.0",model_name="Tongyi-MAI/Z-Image-Turbo"} 0.0
+vllm_omni:e2e_request_latency_s_bucket{le="60.0",model_name="Tongyi-MAI/Z-Image-Turbo"} 1.0
+vllm_omni:e2e_request_latency_s_bucket{le="120.0",model_name="Tongyi-MAI/Z-Image-Turbo"} 1.0
+vllm_omni:e2e_request_latency_s_bucket{le="300.0",model_name="Tongyi-MAI/Z-Image-Turbo"} 1.0
+vllm_omni:e2e_request_latency_s_bucket{le="+Inf",model_name="Tongyi-MAI/Z-Image-Turbo"} 1.0
+vllm_omni:e2e_request_latency_s_count{model_name="Tongyi-MAI/Z-Image-Turbo"} 1.0
+vllm_omni:e2e_request_latency_s_sum{model_name="Tongyi-MAI/Z-Image-Turbo"} 59.74019193649292
+# HELP vllm_omni:e2e_request_latency_s_created Pipeline-global end-to-end request latency in seconds (user arrival to complete response).
+# TYPE vllm_omni:e2e_request_latency_s_created gauge
+vllm_omni:e2e_request_latency_s_created{model_name="Tongyi-MAI/Z-Image-Turbo"} 1.7927429167378654e+09
+# HELP vllm_omni:prompt_tokens_total Total prompt (input) tokens processed across all pipeline stages.
+# TYPE vllm_omni:prompt_tokens_total counter
+vllm_omni:prompt_tokens_total{model_name="Tongyi-MAI/Z-Image-Turbo"} 0.0
+# HELP vllm_omni:prompt_tokens_created Total prompt (input) tokens processed across all pipeline stages.
+# TYPE vllm_omni:prompt_tokens_created gauge
+vllm_omni:prompt_tokens_created{model_name="Tongyi-MAI/Z-Image-Turbo"} 1.7927429167380354e+09
+# HELP vllm_omni:generation_tokens_total Total generation (output) tokens produced across all pipeline stages.
+# TYPE vllm_omni:generation_tokens_total counter
+vllm_omni:generation_tokens_total{model_name="Tongyi-MAI/Z-Image-Turbo"} 0.0
+# HELP vllm_omni:generation_tokens_created Total generation (output) tokens produced across all pipeline stages.
+# TYPE vllm_omni:generation_tokens_created gauge
+vllm_omni:generation_tokens_created{model_name="Tongyi-MAI/Z-Image-Turbo"} 1.7927429167380886e+09
+# HELP vllm_omni:stage_gen_time_s Per-stage generation time in seconds for diffusion / image stages.
+# TYPE vllm_omni:stage_gen_time_s histogram
+vllm_omni:stage_gen_time_s_bucket{le="0.05",model_name="Tongyi-MAI/Z-Image-Turbo",stage="0",stage_type="diffusion"} 0.0
+vllm_omni:stage_gen_time_s_bucket{le="0.1",model_name="Tongyi-MAI/Z-Image-Turbo",stage="0",stage_type="diffusion"} 0.0
+vllm_omni:stage_gen_time_s_bucket{le="0.25",model_name="Tongyi-MAI/Z-Image-Turbo",stage="0",stage_type="diffusion"} 0.0
+vllm_omni:stage_gen_time_s_bucket{le="0.5",model_name="Tongyi-MAI/Z-Image-Turbo",stage="0",stage_type="diffusion"} 0.0
+vllm_omni:stage_gen_time_s_bucket{le="1.0",model_name="Tongyi-MAI/Z-Image-Turbo",stage="0",stage_type="diffusion"} 0.0
+vllm_omni:stage_gen_time_s_bucket{le="2.0",model_name="Tongyi-MAI/Z-Image-Turbo",stage="0",stage_type="diffusion"} 0.0
+vllm_omni:stage_gen_time_s_bucket{le="5.0",model_name="Tongyi-MAI/Z-Image-Turbo",stage="0",stage_type="diffusion"} 0.0
+vllm_omni:stage_gen_time_s_bucket{le="10.0",model_name="Tongyi-MAI/Z-Image-Turbo",stage="0",stage_type="diffusion"} 0.0
+vllm_omni:stage_gen_time_s_bucket{le="20.0",model_name="Tongyi-MAI/Z-Image-Turbo",stage="0",stage_type="diffusion"} 0.0
+vllm_omni:stage_gen_time_s_bucket{le="30.0",model_name="Tongyi-MAI/Z-Image-Turbo",stage="0",stage_type="diffusion"} 0.0
+vllm_omni:stage_gen_time_s_bucket{le="60.0",model_name="Tongyi-MAI/Z-Image-Turbo",stage="0",stage_type="diffusion"} 1.0
+vllm_omni:stage_gen_time_s_bucket{le="120.0",model_name="Tongyi-MAI/Z-Image-Turbo",stage="0",stage_type="diffusion"} 1.0
+vllm_omni:stage_gen_time_s_bucket{le="300.0",model_name="Tongyi-MAI/Z-Image-Turbo",stage="0",stage_type="diffusion"} 1.0
+vllm_omni:stage_gen_time_s_bucket{le="+Inf",model_name="Tongyi-MAI/Z-Image-Turbo",stage="0",stage_type="diffusion"} 1.0
+vllm_omni:stage_gen_time_s_count{model_name="Tongyi-MAI/Z-Image-Turbo",stage="0",stage_type="diffusion"} 1.0
+vllm_omni:stage_gen_time_s_sum{model_name="Tongyi-MAI/Z-Image-Turbo",stage="0",stage_type="diffusion"} 59.738566875457764
+# HELP vllm_omni:stage_gen_time_s_created Per-stage generation time in seconds for diffusion / image stages.
+# TYPE vllm_omni:stage_gen_time_s_created gauge
+vllm_omni:stage_gen_time_s_created{model_name="Tongyi-MAI/Z-Image-Turbo",stage="0",stage_type="diffusion"} 1.7927430530866137e+09
+# HELP vllm_omni:request_queue_wait_s Per-request queue wait between submit arrival and stage submit, in seconds.
+# TYPE vllm_omni:request_queue_wait_s histogram
+vllm_omni:request_queue_wait_s_bucket{le="0.05",model_name="Tongyi-MAI/Z-Image-Turbo"} 1.0
+vllm_omni:request_queue_wait_s_bucket{le="0.1",model_name="Tongyi-MAI/Z-Image-Turbo"} 1.0
+vllm_omni:request_queue_wait_s_bucket{le="0.25",model_name="Tongyi-MAI/Z-Image-Turbo"} 1.0
+vllm_omni:request_queue_wait_s_bucket{le="0.5",model_name="Tongyi-MAI/Z-Image-Turbo"} 1.0
+vllm_omni:request_queue_wait_s_bucket{le="1.0",model_name="Tongyi-MAI/Z-Image-Turbo"} 1.0
+vllm_omni:request_queue_wait_s_bucket{le="2.0",model_name="Tongyi-MAI/Z-Image-Turbo"} 1.0
+vllm_omni:request_queue_wait_s_bucket{le="5.0",model_name="Tongyi-MAI/Z-Image-Turbo"} 1.0
+vllm_omni:request_queue_wait_s_bucket{le="10.0",model_name="Tongyi-MAI/Z-Image-Turbo"} 1.0
+vllm_omni:request_queue_wait_s_bucket{le="20.0",model_name="Tongyi-MAI/Z-Image-Turbo"} 1.0
+vllm_omni:request_queue_wait_s_bucket{le="30.0",model_name="Tongyi-MAI/Z-Image-Turbo"} 1.0
+vllm_omni:request_queue_wait_s_bucket{le="60.0",model_name="Tongyi-MAI/Z-Image-Turbo"} 1.0
+vllm_omni:request_queue_wait_s_bucket{le="120.0",model_name="Tongyi-MAI/Z-Image-Turbo"} 1.0
+vllm_omni:request_queue_wait_s_bucket{le="300.0",model_name="Tongyi-MAI/Z-Image-Turbo"} 1.0
+vllm_omni:request_queue_wait_s_bucket{le="+Inf",model_name="Tongyi-MAI/Z-Image-Turbo"} 1.0
+vllm_omni:request_queue_wait_s_count{model_name="Tongyi-MAI/Z-Image-Turbo"} 1.0
+vllm_omni:request_queue_wait_s_sum{model_name="Tongyi-MAI/Z-Image-Turbo"} 0.00147716497303918
+# HELP vllm_omni:request_queue_wait_s_created Per-request queue wait between submit arrival and stage submit, in seconds.
+# TYPE vllm_omni:request_queue_wait_s_created gauge
+vllm_omni:request_queue_wait_s_created{model_name="Tongyi-MAI/Z-Image-Turbo"} 1.7927429167381334e+09
+# HELP vllm_omni:stage_waiting_requests Sum of the latest scheduler waiting snapshots across a stage's replicas; diffusion snapshots update when outputs arrive.
+# TYPE vllm_omni:stage_waiting_requests gauge
+vllm_omni:stage_waiting_requests{model_name="Tongyi-MAI/Z-Image-Turbo",stage="0"} 0.0
+# HELP vllm_omni:num_inference_steps Diffusion step count distribution per request.
+# TYPE vllm_omni:num_inference_steps histogram
+vllm_omni:num_inference_steps_bucket{le="0.005",model_name="Tongyi-MAI/Z-Image-Turbo"} 0.0
+vllm_omni:num_inference_steps_bucket{le="0.01",model_name="Tongyi-MAI/Z-Image-Turbo"} 0.0
+vllm_omni:num_inference_steps_bucket{le="0.025",model_name="Tongyi-MAI/Z-Image-Turbo"} 0.0
+vllm_omni:num_inference_steps_bucket{le="0.05",model_name="Tongyi-MAI/Z-Image-Turbo"} 0.0
+vllm_omni:num_inference_steps_bucket{le="0.075",model_name="Tongyi-MAI/Z-Image-Turbo"} 0.0
+vllm_omni:num_inference_steps_bucket{le="0.1",model_name="Tongyi-MAI/Z-Image-Turbo"} 0.0
+vllm_omni:num_inference_steps_bucket{le="0.25",model_name="Tongyi-MAI/Z-Image-Turbo"} 0.0
+vllm_omni:num_inference_steps_bucket{le="0.5",model_name="Tongyi-MAI/Z-Image-Turbo"} 0.0
+vllm_omni:num_inference_steps_bucket{le="0.75",model_name="Tongyi-MAI/Z-Image-Turbo"} 0.0
+vllm_omni:num_inference_steps_bucket{le="1.0",model_name="Tongyi-MAI/Z-Image-Turbo"} 0.0
+vllm_omni:num_inference_steps_bucket{le="2.5",model_name="Tongyi-MAI/Z-Image-Turbo"} 0.0
+vllm_omni:num_inference_steps_bucket{le="5.0",model_name="Tongyi-MAI/Z-Image-Turbo"} 0.0
+vllm_omni:num_inference_steps_bucket{le="7.5",model_name="Tongyi-MAI/Z-Image-Turbo"} 0.0
+vllm_omni:num_inference_steps_bucket{le="10.0",model_name="Tongyi-MAI/Z-Image-Turbo"} 0.0
+vllm_omni:num_inference_steps_bucket{le="+Inf",model_name="Tongyi-MAI/Z-Image-Turbo"} 0.0
+vllm_omni:num_inference_steps_count{model_name="Tongyi-MAI/Z-Image-Turbo"} 0.0
+vllm_omni:num_inference_steps_sum{model_name="Tongyi-MAI/Z-Image-Turbo"} 0.0
+# HELP vllm_omni:num_inference_steps_created Diffusion step count distribution per request.
+# TYPE vllm_omni:num_inference_steps_created gauge
+vllm_omni:num_inference_steps_created{model_name="Tongyi-MAI/Z-Image-Turbo"} 1.7927429167382333e+09
+# HELP vllm_omni:image_count_total Cumulative image count; per-model rate. Throughput recovered via rate().
+# TYPE vllm_omni:image_count_total counter
+vllm_omni:image_count_total{model_name="Tongyi-MAI/Z-Image-Turbo"} 1.0
+# HELP vllm_omni:image_count_created Cumulative image count; per-model rate. Throughput recovered via rate().
+# TYPE vllm_omni:image_count_created gauge
+vllm_omni:image_count_created{model_name="Tongyi-MAI/Z-Image-Turbo"} 1.792742916738331e+09
+# HELP vllm_omni:image_pixels Image pixel count distribution per request.
+# TYPE vllm_omni:image_pixels histogram
+vllm_omni:image_pixels_bucket{le="0.005",model_name="Tongyi-MAI/Z-Image-Turbo"} 0.0
+vllm_omni:image_pixels_bucket{le="0.01",model_name="Tongyi-MAI/Z-Image-Turbo"} 0.0
+vllm_omni:image_pixels_bucket{le="0.025",model_name="Tongyi-MAI/Z-Image-Turbo"} 0.0
+vllm_omni:image_pixels_bucket{le="0.05",model_name="Tongyi-MAI/Z-Image-Turbo"} 0.0
+vllm_omni:image_pixels_bucket{le="0.075",model_name="Tongyi-MAI/Z-Image-Turbo"} 0.0
+vllm_omni:image_pixels_bucket{le="0.1",model_name="Tongyi-MAI/Z-Image-Turbo"} 0.0
+vllm_omni:image_pixels_bucket{le="0.25",model_name="Tongyi-MAI/Z-Image-Turbo"} 0.0
+vllm_omni:image_pixels_bucket{le="0.5",model_name="Tongyi-MAI/Z-Image-Turbo"} 0.0
+vllm_omni:image_pixels_bucket{le="0.75",model_name="Tongyi-MAI/Z-Image-Turbo"} 0.0
+vllm_omni:image_pixels_bucket{le="1.0",model_name="Tongyi-MAI/Z-Image-Turbo"} 0.0
+vllm_omni:image_pixels_bucket{le="2.5",model_name="Tongyi-MAI/Z-Image-Turbo"} 0.0
+vllm_omni:image_pixels_bucket{le="5.0",model_name="Tongyi-MAI/Z-Image-Turbo"} 0.0
+vllm_omni:image_pixels_bucket{le="7.5",model_name="Tongyi-MAI/Z-Image-Turbo"} 0.0
+vllm_omni:image_pixels_bucket{le="10.0",model_name="Tongyi-MAI/Z-Image-Turbo"} 0.0
+vllm_omni:image_pixels_bucket{le="+Inf",model_name="Tongyi-MAI/Z-Image-Turbo"} 1.0
+vllm_omni:image_pixels_count{model_name="Tongyi-MAI/Z-Image-Turbo"} 1.0
+vllm_omni:image_pixels_sum{model_name="Tongyi-MAI/Z-Image-Turbo"} 1.048576e+06
+# HELP vllm_omni:image_pixels_created Image pixel count distribution per request.
+# TYPE vllm_omni:image_pixels_created gauge
+vllm_omni:image_pixels_created{model_name="Tongyi-MAI/Z-Image-Turbo"} 1.7927429167383587e+09
+# HELP vllm_omni:peak_memory_mb Peak GPU memory in MB observed during a stage's generation.
+# TYPE vllm_omni:peak_memory_mb gauge
+vllm_omni:peak_memory_mb{model_name="Tongyi-MAI/Z-Image-Turbo",stage="0"} 24234.0
+# HELP vllm_omni:stage_in_queue_s Time in seconds from diffusion scheduler enqueue to initial execution admission. Zero is the healthy low-load baseline and is counted.
+# TYPE vllm_omni:stage_in_queue_s histogram
+vllm_omni:stage_in_queue_s_bucket{le="0.001",model_name="Tongyi-MAI/Z-Image-Turbo",stage="0"} 1.0
+vllm_omni:stage_in_queue_s_bucket{le="0.005",model_name="Tongyi-MAI/Z-Image-Turbo",stage="0"} 1.0
+vllm_omni:stage_in_queue_s_bucket{le="0.01",model_name="Tongyi-MAI/Z-Image-Turbo",stage="0"} 1.0
+vllm_omni:stage_in_queue_s_bucket{le="0.025",model_name="Tongyi-MAI/Z-Image-Turbo",stage="0"} 1.0
+vllm_omni:stage_in_queue_s_bucket{le="0.05",model_name="Tongyi-MAI/Z-Image-Turbo",stage="0"} 1.0
+vllm_omni:stage_in_queue_s_bucket{le="0.1",model_name="Tongyi-MAI/Z-Image-Turbo",stage="0"} 1.0
+vllm_omni:stage_in_queue_s_bucket{le="0.25",model_name="Tongyi-MAI/Z-Image-Turbo",stage="0"} 1.0
+vllm_omni:stage_in_queue_s_bucket{le="0.5",model_name="Tongyi-MAI/Z-Image-Turbo",stage="0"} 1.0
+vllm_omni:stage_in_queue_s_bucket{le="1.0",model_name="Tongyi-MAI/Z-Image-Turbo",stage="0"} 1.0
+vllm_omni:stage_in_queue_s_bucket{le="2.5",model_name="Tongyi-MAI/Z-Image-Turbo",stage="0"} 1.0
+vllm_omni:stage_in_queue_s_bucket{le="5.0",model_name="Tongyi-MAI/Z-Image-Turbo",stage="0"} 1.0
+vllm_omni:stage_in_queue_s_bucket{le="10.0",model_name="Tongyi-MAI/Z-Image-Turbo",stage="0"} 1.0
+vllm_omni:stage_in_queue_s_bucket{le="60.0",model_name="Tongyi-MAI/Z-Image-Turbo",stage="0"} 1.0
+vllm_omni:stage_in_queue_s_bucket{le="+Inf",model_name="Tongyi-MAI/Z-Image-Turbo",stage="0"} 1.0
+vllm_omni:stage_in_queue_s_count{model_name="Tongyi-MAI/Z-Image-Turbo",stage="0"} 1.0
+vllm_omni:stage_in_queue_s_sum{model_name="Tongyi-MAI/Z-Image-Turbo",stage="0"} 0.00028479500906541944
+# HELP vllm_omni:stage_in_queue_s_created Time in seconds from diffusion scheduler enqueue to initial execution admission. Zero is the healthy low-load baseline and is counted.
+# TYPE vllm_omni:stage_in_queue_s_created gauge
+vllm_omni:stage_in_queue_s_created{model_name="Tongyi-MAI/Z-Image-Turbo",stage="0"} 1.7927430530869246e+09
+# HELP vllm_omni:requests_failed_total Total requests by failure reason. Pairs with requests_success_total (abort bucket) to give the full failure surface. Reasons are bounded to client_abort, client_disconnect, stage_error, and unknown.
+# TYPE vllm_omni:requests_failed_total counter
+# HELP vllm_omni:kv_wait_s KV cache transfer wait time per request, sliced by connector backend.
+# TYPE vllm_omni:kv_wait_s histogram
+# HELP vllm_omni:audio_ttfp_s Time from request arrival to first audio packet/frame, in seconds.
+# TYPE vllm_omni:audio_ttfp_s histogram
+# HELP vllm_omni:audio_duration_s Generated audio content duration in seconds (audio_frames / sample_rate).
+# TYPE vllm_omni:audio_duration_s histogram
+# HELP vllm_omni:audio_rtf Audio real-time factor (stage_gen_time_s / audio_duration_s); streaming TTS requires < 1.
+# TYPE vllm_omni:audio_rtf histogram
+# HELP vllm_omni:audio_frames_total Cumulative audio frame count; per-model rate (not summable across models). Throughput recovered via rate().
+# TYPE vllm_omni:audio_frames_total counter
+# HELP vllm_omni:audio_underrun_s Per-request worst-case player-deficit in seconds (max time the player ran out of buffered audio). > 0 indicates listener experienced silent gaps.
+# TYPE vllm_omni:audio_underrun_s histogram
+# HELP vllm_omni:audio_continuity_ok_total Incremented when the request's worst underrun stayed below threshold_ms. Pair with requests_success_total to compute streaming-continuity health rate.
+# TYPE vllm_omni:audio_continuity_ok_total counter
+# HELP vllm_omni:audio_skipped_requests_total Silent-loss counter — code2wav rejected malformed codec input and returned 200 OK with empty audio.
+# TYPE vllm_omni:audio_skipped_requests_total counter
+# HELP vllm_omni:speech_stream_aborted_total Speech audio generators terminated before normal completion, including before the first PCM payload.
+# TYPE vllm_omni:speech_stream_aborted_total counter
+# HELP vllm_omni:speech_stream_completed_total Speech audio generators that completed normally; does not confirm client receipt.
+# TYPE vllm_omni:speech_stream_completed_total counter
+# HELP vllm_omni:diffusion_exec_s DiT forward pass execution time per request in seconds.
+# TYPE vllm_omni:diffusion_exec_s histogram
+vllm_omni:diffusion_exec_s_bucket{le="0.05",model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 0.0
+vllm_omni:diffusion_exec_s_bucket{le="0.1",model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 0.0
+vllm_omni:diffusion_exec_s_bucket{le="0.25",model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 0.0
+vllm_omni:diffusion_exec_s_bucket{le="0.5",model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 0.0
+vllm_omni:diffusion_exec_s_bucket{le="1.0",model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 0.0
+vllm_omni:diffusion_exec_s_bucket{le="2.0",model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 0.0
+vllm_omni:diffusion_exec_s_bucket{le="5.0",model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 0.0
+vllm_omni:diffusion_exec_s_bucket{le="10.0",model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 0.0
+vllm_omni:diffusion_exec_s_bucket{le="20.0",model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 0.0
+vllm_omni:diffusion_exec_s_bucket{le="30.0",model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 0.0
+vllm_omni:diffusion_exec_s_bucket{le="60.0",model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 1.0
+vllm_omni:diffusion_exec_s_bucket{le="120.0",model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 1.0
+vllm_omni:diffusion_exec_s_bucket{le="300.0",model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 1.0
+vllm_omni:diffusion_exec_s_bucket{le="+Inf",model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 1.0
+vllm_omni:diffusion_exec_s_count{model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 1.0
+vllm_omni:diffusion_exec_s_sum{model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 59.59566328802612
+# HELP vllm_omni:diffusion_exec_s_created DiT forward pass execution time per request in seconds.
+# TYPE vllm_omni:diffusion_exec_s_created gauge
+vllm_omni:diffusion_exec_s_created{model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 1.792743053087501e+09
+# HELP vllm_omni:diffusion_exec_per_step_s DiT forward pass execution time per denoising step in seconds.
+# TYPE vllm_omni:diffusion_exec_per_step_s histogram
+# HELP vllm_omni:diffusion_preprocess_s Diffusion input preprocessing time per request in seconds.
+# TYPE vllm_omni:diffusion_preprocess_s histogram
+vllm_omni:diffusion_preprocess_s_bucket{le="0.001",model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 1.0
+vllm_omni:diffusion_preprocess_s_bucket{le="0.005",model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 1.0
+vllm_omni:diffusion_preprocess_s_bucket{le="0.01",model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 1.0
+vllm_omni:diffusion_preprocess_s_bucket{le="0.025",model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 1.0
+vllm_omni:diffusion_preprocess_s_bucket{le="0.05",model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 1.0
+vllm_omni:diffusion_preprocess_s_bucket{le="0.1",model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 1.0
+vllm_omni:diffusion_preprocess_s_bucket{le="0.25",model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 1.0
+vllm_omni:diffusion_preprocess_s_bucket{le="0.5",model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 1.0
+vllm_omni:diffusion_preprocess_s_bucket{le="1.0",model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 1.0
+vllm_omni:diffusion_preprocess_s_bucket{le="2.5",model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 1.0
+vllm_omni:diffusion_preprocess_s_bucket{le="5.0",model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 1.0
+vllm_omni:diffusion_preprocess_s_bucket{le="10.0",model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 1.0
+vllm_omni:diffusion_preprocess_s_bucket{le="60.0",model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 1.0
+vllm_omni:diffusion_preprocess_s_bucket{le="+Inf",model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 1.0
+vllm_omni:diffusion_preprocess_s_count{model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 1.0
+vllm_omni:diffusion_preprocess_s_sum{model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 0.0
+# HELP vllm_omni:diffusion_preprocess_s_created Diffusion input preprocessing time per request in seconds.
+# TYPE vllm_omni:diffusion_preprocess_s_created gauge
+vllm_omni:diffusion_preprocess_s_created{model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 1.792743053087632e+09
+# HELP vllm_omni:diffusion_postprocess_s Diffusion output postprocessing (VAE decode) time per request in seconds.
+# TYPE vllm_omni:diffusion_postprocess_s histogram
+vllm_omni:diffusion_postprocess_s_bucket{le="0.001",model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 0.0
+vllm_omni:diffusion_postprocess_s_bucket{le="0.005",model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 0.0
+vllm_omni:diffusion_postprocess_s_bucket{le="0.01",model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 0.0
+vllm_omni:diffusion_postprocess_s_bucket{le="0.025",model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 0.0
+vllm_omni:diffusion_postprocess_s_bucket{le="0.05",model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 0.0
+vllm_omni:diffusion_postprocess_s_bucket{le="0.1",model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 0.0
+vllm_omni:diffusion_postprocess_s_bucket{le="0.25",model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 1.0
+vllm_omni:diffusion_postprocess_s_bucket{le="0.5",model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 1.0
+vllm_omni:diffusion_postprocess_s_bucket{le="1.0",model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 1.0
+vllm_omni:diffusion_postprocess_s_bucket{le="2.5",model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 1.0
+vllm_omni:diffusion_postprocess_s_bucket{le="5.0",model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 1.0
+vllm_omni:diffusion_postprocess_s_bucket{le="10.0",model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 1.0
+vllm_omni:diffusion_postprocess_s_bucket{le="60.0",model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 1.0
+vllm_omni:diffusion_postprocess_s_bucket{le="+Inf",model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 1.0
+vllm_omni:diffusion_postprocess_s_count{model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 1.0
+vllm_omni:diffusion_postprocess_s_sum{model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 0.14058586704777554
+# HELP vllm_omni:diffusion_postprocess_s_created Diffusion output postprocessing (VAE decode) time per request in seconds.
+# TYPE vllm_omni:diffusion_postprocess_s_created gauge
+vllm_omni:diffusion_postprocess_s_created{model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 1.7927430530877488e+09
+# HELP vllm_omni:vae_decode_s VAE decode latency in seconds (latents -> pixels/audio/video).
+# TYPE vllm_omni:vae_decode_s histogram
+# HELP vllm_omni:diffusion_forward_s Diffusion forward-only latency in seconds (denoise loop; excludes preprocess / postprocess / VAE decode / KV load). Absent when the pipeline profiler is off.
+# TYPE vllm_omni:diffusion_forward_s histogram
+# HELP vllm_omni:diffusion_kv_load_s Diffusion KV-recv latency in seconds (AR→diffusion KV fetch; absent when the stage has no upstream KV to receive).
+# TYPE vllm_omni:diffusion_kv_load_s histogram
+vllm_omni:diffusion_kv_load_s_bucket{le="0.001",model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 1.0
+vllm_omni:diffusion_kv_load_s_bucket{le="0.005",model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 1.0
+vllm_omni:diffusion_kv_load_s_bucket{le="0.01",model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 1.0
+vllm_omni:diffusion_kv_load_s_bucket{le="0.025",model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 1.0
+vllm_omni:diffusion_kv_load_s_bucket{le="0.05",model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 1.0
+vllm_omni:diffusion_kv_load_s_bucket{le="0.1",model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 1.0
+vllm_omni:diffusion_kv_load_s_bucket{le="0.25",model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 1.0
+vllm_omni:diffusion_kv_load_s_bucket{le="0.5",model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 1.0
+vllm_omni:diffusion_kv_load_s_bucket{le="1.0",model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 1.0
+vllm_omni:diffusion_kv_load_s_bucket{le="2.5",model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 1.0
+vllm_omni:diffusion_kv_load_s_bucket{le="5.0",model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 1.0
+vllm_omni:diffusion_kv_load_s_bucket{le="10.0",model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 1.0
+vllm_omni:diffusion_kv_load_s_bucket{le="60.0",model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 1.0
+vllm_omni:diffusion_kv_load_s_bucket{le="+Inf",model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 1.0
+vllm_omni:diffusion_kv_load_s_count{model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 1.0
+vllm_omni:diffusion_kv_load_s_sum{model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 0.00014428998110815883
+# HELP vllm_omni:diffusion_kv_load_s_created Diffusion KV-recv latency in seconds (AR→diffusion KV fetch; absent when the stage has no upstream KV to receive).
+# TYPE vllm_omni:diffusion_kv_load_s_created gauge
+vllm_omni:diffusion_kv_load_s_created{model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 1.7927430530878565e+09
+# HELP vllm_omni:image_ttfp_s Image time-to-first-output in seconds (stage submit → first image materialized; non-streaming single-image). Stage-level, not e2e — excludes API queue and inter-stage transfer before the image stage.
+# TYPE vllm_omni:image_ttfp_s histogram
+vllm_omni:image_ttfp_s_bucket{le="0.05",model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 0.0
+vllm_omni:image_ttfp_s_bucket{le="0.1",model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 0.0
+vllm_omni:image_ttfp_s_bucket{le="0.25",model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 0.0
+vllm_omni:image_ttfp_s_bucket{le="0.5",model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 0.0
+vllm_omni:image_ttfp_s_bucket{le="1.0",model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 0.0
+vllm_omni:image_ttfp_s_bucket{le="2.0",model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 0.0
+vllm_omni:image_ttfp_s_bucket{le="5.0",model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 0.0
+vllm_omni:image_ttfp_s_bucket{le="10.0",model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 0.0
+vllm_omni:image_ttfp_s_bucket{le="20.0",model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 0.0
+vllm_omni:image_ttfp_s_bucket{le="30.0",model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 0.0
+vllm_omni:image_ttfp_s_bucket{le="60.0",model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 1.0
+vllm_omni:image_ttfp_s_bucket{le="120.0",model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 1.0
+vllm_omni:image_ttfp_s_bucket{le="300.0",model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 1.0
+vllm_omni:image_ttfp_s_bucket{le="+Inf",model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 1.0
+vllm_omni:image_ttfp_s_count{model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 1.0
+vllm_omni:image_ttfp_s_sum{model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 59.738489627838135
+# HELP vllm_omni:image_ttfp_s_created Image time-to-first-output in seconds (stage submit → first image materialized; non-streaming single-image). Stage-level, not e2e — excludes API queue and inter-stage transfer before the image stage.
+# TYPE vllm_omni:image_ttfp_s_created gauge
+vllm_omni:image_ttfp_s_created{model_name="Tongyi-MAI/Z-Image-Turbo",replica="0",stage="0"} 1.7927430530871363e+09
+# HELP vllm_omni:denoise_step_latency_s Mean per-step denoise forward latency in seconds (forward_time / num_inference_steps).
+# TYPE vllm_omni:denoise_step_latency_s histogram
+# HELP vllm_omni:transfer_size_bytes Per-transfer payload size in bytes (one observation per physical hop).
+# TYPE vllm_omni:transfer_size_bytes histogram
+# HELP vllm_omni:transfer_tx_s Sender-side time in seconds (serialize + submit to connector).
+# TYPE vllm_omni:transfer_tx_s histogram
+# HELP vllm_omni:transfer_rx_s Receiver-side time in seconds (recv + deserialize).
+# TYPE vllm_omni:transfer_rx_s histogram
+# HELP vllm_omni:transfer_in_flight_s Network in-flight time in seconds (TX done -> RX recv start).
+# TYPE vllm_omni:transfer_in_flight_s histogram
+# HELP http_requests_total Total number of requests by method, status and handler.
+# TYPE http_requests_total counter
+http_requests_total{handler="/v1/models",method="GET",status="2xx"} 2.0
+http_requests_total{handler="/v1/images/generations",method="POST",status="2xx"} 1.0
+# HELP http_requests_created Total number of requests by method, status and handler.
+# TYPE http_requests_created gauge
+http_requests_created{handler="/v1/models",method="GET",status="2xx"} 1.7927429758028598e+09
+http_requests_created{handler="/v1/images/generations",method="POST",status="2xx"} 1.7927430533940647e+09
+# HELP http_request_size_bytes Content length of incoming requests by handler. Only value of header is respected. Otherwise ignored. No percentile calculated. 
+# TYPE http_request_size_bytes summary
+http_request_size_bytes_count{handler="/v1/models"} 2.0
+http_request_size_bytes_sum{handler="/v1/models"} 0.0
+http_request_size_bytes_count{handler="/v1/images/generations"} 1.0
+http_request_size_bytes_sum{handler="/v1/images/generations"} 126.0
+# HELP http_request_size_bytes_created Content length of incoming requests by handler. Only value of header is respected. Otherwise ignored. No percentile calculated. 
+# TYPE http_request_size_bytes_created gauge
+http_request_size_bytes_created{handler="/v1/models"} 1.7927429758030338e+09
+http_request_size_bytes_created{handler="/v1/images/generations"} 1.7927430533940997e+09
+# HELP http_response_size_bytes Content length of outgoing responses by handler. Only value of header is respected. Otherwise ignored. No percentile calculated. 
+# TYPE http_response_size_bytes summary
+http_response_size_bytes_count{handler="/v1/models"} 2.0
+http_response_size_bytes_sum{handler="/v1/models"} 964.0
+http_response_size_bytes_count{handler="/v1/images/generations"} 1.0
+http_response_size_bytes_sum{handler="/v1/images/generations"} 4.197413e+06
+# HELP http_response_size_bytes_created Content length of outgoing responses by handler. Only value of header is respected. Otherwise ignored. No percentile calculated. 
+# TYPE http_response_size_bytes_created gauge
+http_response_size_bytes_created{handler="/v1/models"} 1.7927429758031557e+09
+http_response_size_bytes_created{handler="/v1/images/generations"} 1.7927430533941288e+09
+# HELP http_request_duration_highr_seconds Latency with many buckets but no API specific labels. Made for more accurate percentile calculations. 
+# TYPE http_request_duration_highr_seconds histogram
+http_request_duration_highr_seconds_bucket{le="0.01"} 2.0
+http_request_duration_highr_seconds_bucket{le="0.025"} 2.0
+http_request_duration_highr_seconds_bucket{le="0.05"} 2.0
+http_request_duration_highr_seconds_bucket{le="0.075"} 2.0
+http_request_duration_highr_seconds_bucket{le="0.1"} 2.0
+http_request_duration_highr_seconds_bucket{le="0.25"} 2.0
+http_request_duration_highr_seconds_bucket{le="0.5"} 2.0
+http_request_duration_highr_seconds_bucket{le="0.75"} 2.0
+http_request_duration_highr_seconds_bucket{le="1.0"} 2.0
+http_request_duration_highr_seconds_bucket{le="1.5"} 2.0
+http_request_duration_highr_seconds_bucket{le="2.0"} 2.0
+http_request_duration_highr_seconds_bucket{le="2.5"} 2.0
+http_request_duration_highr_seconds_bucket{le="3.0"} 2.0
+http_request_duration_highr_seconds_bucket{le="3.5"} 2.0
+http_request_duration_highr_seconds_bucket{le="4.0"} 2.0
+http_request_duration_highr_seconds_bucket{le="4.5"} 2.0
+http_request_duration_highr_seconds_bucket{le="5.0"} 2.0
+http_request_duration_highr_seconds_bucket{le="7.5"} 2.0
+http_request_duration_highr_seconds_bucket{le="10.0"} 2.0
+http_request_duration_highr_seconds_bucket{le="30.0"} 2.0
+http_request_duration_highr_seconds_bucket{le="60.0"} 2.0
+http_request_duration_highr_seconds_bucket{le="+Inf"} 3.0
+http_request_duration_highr_seconds_count 3.0
+http_request_duration_highr_seconds_sum 60.06657428405015
+# HELP http_request_duration_highr_seconds_created Latency with many buckets but no API specific labels. Made for more accurate percentile calculations. 
+# TYPE http_request_duration_highr_seconds_created gauge
+http_request_duration_highr_seconds_created 1.792742955287308e+09
+# HELP http_request_duration_seconds Latency with only few buckets by handler. Made to be only used if aggregation by handler is important. 
+# TYPE http_request_duration_seconds histogram
+http_request_duration_seconds_bucket{handler="/v1/models",le="0.1",method="GET"} 2.0
+http_request_duration_seconds_bucket{handler="/v1/models",le="0.5",method="GET"} 2.0
+http_request_duration_seconds_bucket{handler="/v1/models",le="1.0",method="GET"} 2.0
+http_request_duration_seconds_bucket{handler="/v1/models",le="+Inf",method="GET"} 2.0
+http_request_duration_seconds_count{handler="/v1/models",method="GET"} 2.0
+http_request_duration_seconds_sum{handler="/v1/models",method="GET"} 0.006926545058377087
+http_request_duration_seconds_bucket{handler="/v1/images/generations",le="0.1",method="POST"} 0.0
+http_request_duration_seconds_bucket{handler="/v1/images/generations",le="0.5",method="POST"} 0.0
+http_request_duration_seconds_bucket{handler="/v1/images/generations",le="1.0",method="POST"} 0.0
+http_request_duration_seconds_bucket{handler="/v1/images/generations",le="+Inf",method="POST"} 1.0
+http_request_duration_seconds_count{handler="/v1/images/generations",method="POST"} 1.0
+http_request_duration_seconds_sum{handler="/v1/images/generations",method="POST"} 60.05964773899177
+# HELP http_request_duration_seconds_created Latency with only few buckets by handler. Made to be only used if aggregation by handler is important. 
+# TYPE http_request_duration_seconds_created gauge
+http_request_duration_seconds_created{handler="/v1/models",method="GET"} 1.7927429758032937e+09
+http_request_duration_seconds_created{handler="/v1/images/generations",method="POST"} 1.7927430533941634e+09

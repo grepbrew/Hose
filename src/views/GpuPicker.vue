@@ -15,7 +15,7 @@ const dcs = ref<DataCenter[]>([]); // stays empty if RunPod's list fails: then t
 const loading = ref(false);
 const error = ref("");
 
-const room = computed(() => smoothGb(props.model.params));
+const room = computed(() => smoothGb(props.model.params, props.model.draws));
 // Secure only: on a cloud switch the parent clears location a tick after cloud changes
 const cards = computed(() => gpuCards(catalog.value, props.cloud, props.model, dcIds(props.cloud === "SECURE" ? props.location : "", dcs.value)));
 const best = computed(() => recommend(cards.value));

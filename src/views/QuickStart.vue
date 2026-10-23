@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from "vue";
 import { getGpus } from "../api";
-import { QUICK, PRESETS, gpuCards, recommend, newConfig, moveTo, diskGb, volumePerMo, usd, type Config, type Gpu, type Preset } from "../cost";
+import { QUICK, presetOf as preset, gpuCards, recommend, newConfig, moveTo, diskGb, volumePerMo, usd, type Config, type Gpu, type Preset } from "../cost";
 import type { Fleet } from "../fleet";
 import Icon from "./Icon.vue";
 
@@ -26,7 +26,7 @@ async function load() {
 }
 onMounted(load);
 
-const presetOf = (id: string) => PRESETS.find((p) => p.id === id)!;
+const presetOf = (id: string) => preset(id)!;
 const cards = computed(() =>
   QUICK.map((q) => {
     const preset = presetOf(q.id);
@@ -45,7 +45,7 @@ type Card = (typeof cards.value)[number];
 const soldOut = computed(() => !loading.value && !error.value && cards.value.every((c) => !c.on && !c.gpu));
 const canStart = (c: Card) => c.on || (!!c.gpu && !busy.value);
 // keeping a model ready = its network volume, billed monthly
-const storage = computed(() => QUICK.map((q) => volumePerMo(diskGb(presetOf(q.id).params))));
+const storage = computed(() => QUICK.map((q) => volumePerMo(diskGb(presetOf(q.id).params, presetOf(q.id).draws))));
 
 const busy = ref("");
 async function start(c: Card) {
@@ -105,7 +105,7 @@ async function start(c: Card) {
         </div>
         <div class="actions">
           <button class="btn primary" type="button" :disabled="!canStart(c)" :aria-label="`${c.on ? 'Open' : 'Start'} ${c.purpose}`" @click="start(c)">
-            {{ busy === c.purpose ? "Starting…" : c.on ? "Open chat" : c.saved ? "Start again" : "Start chatting" }}
+            {{ busy === c.purpose ? "Starting…" : c.on ? (c.preset.draws ? "Open" : "Open chat") : c.saved ? "Start again" : c.preset.draws ? "Start" : "Start chatting" }}
           </button>
           <button class="btn quiet" type="button" @click="emit('customize', c.preset)">Customize</button>
         </div>

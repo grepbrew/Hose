@@ -1,3 +1,5 @@
+import { invoke, isTauri } from "@tauri-apps/api/core";
+
 // Photos, screenshots and PDF pages for a model that reads images: JPEG data URLs, the longest side at most MAX_SIDE.
 // ponytail: 2048 px keeps a page near 3–4k tokens and its text sharp; raise it if small print gets misread.
 export const MAX_SIDE = 2048;
@@ -59,3 +61,22 @@ async function pdfPages(file: File, room: number) {
     void task.destroy(); // frees the worker's copy
   }
 }
+
+// --- pictures a picture model made -----------------------------------------------------------------
+
+/** 2026-10-23-153000-a-red-fox.png: when it was made, then the prompt's first words. */
+export function imageName(prompt: string, at = new Date()) {
+  const two = (n: number) => String(n).padStart(2, "0");
+  const slug = prompt.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40).replace(/^-+|-+$/g, "") || "picture";
+  return `${at.getFullYear()}-${two(at.getMonth() + 1)}-${two(at.getDate())}-${two(at.getHours())}${two(at.getMinutes())}${two(at.getSeconds())}-${slug}.png`;
+}
+
+/** Writes a PNG data URL to ~/Pictures/Hose and returns its path; "" outside the app (vite dev keeps it in the page only). */
+export async function saveImage(dataUrl: string, prompt: string): Promise<string> {
+  if (!isTauri()) return "";
+  const bytes = Uint8Array.from(atob(dataUrl.slice(dataUrl.indexOf(",") + 1)), (c) => c.charCodeAt(0));
+  return invoke<string>("save_image", bytes, { headers: { name: imageName(prompt) } });
+}
+
+/** Shows the file selected in a Finder window. */
+export const showInFinder = (path: string) => invoke("plugin:opener|reveal_item_in_dir", { paths: [path] });

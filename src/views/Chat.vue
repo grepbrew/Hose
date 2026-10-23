@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { ref, computed, nextTick, onMounted, watch } from "vue";
-import { chatStream, podLogs, type LogLine } from "../api";
-import { label, stuckBoot, seesImages, type Config } from "../cost";
+import { chatStream, drawImage, podLogs, type LogLine, type Message } from "../api";
+import { label, stuckBoot, seesImages, stepsOf, type Config } from "../cost";
 import type { Fleet } from "../fleet";
 import { md } from "../markdown";
-import { toImages, MAX_IMAGES } from "../images";
+import { toImages, MAX_IMAGES, saveImage, showInFinder } from "../images";
 import Icon from "./Icon.vue";
 
 const props = defineProps<{ apiKey: string; vllmKey: string; config: Config; fleet: Fleet }>();
@@ -109,6 +109,26 @@ const onPaste = (e: ClipboardEvent) => {
 };
 const onDrop = (e: DragEvent) => void attach([...(e.dataTransfer?.files ?? [])]);
 
+// A picture model: each message is a prompt on its own, the reply is a picture saved to ~/Pictures/Hose.
+const draws = computed(() => !!props.config.draws);
+// sizes vLLM-Omni takes as WxH; multiples of 64, about a megapixel each
+const SHAPES = [
+  ["1024x1024", "Square"],
+  ["768x1344", "Portrait"],
+  ["1344x768", "Landscape"],
+] as const;
+const shape = ref<string>(SHAPES[0][0]);
+const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
+async function draw(podId: string, prompt: string, reply: Message) {
+  const start = performance.now();
+  const url = await drawImage(podId, props.vllmKey, props.config.id, prompt, shape.value, stepsOf(props.config.id));
+  Object.assign(reply, { images: [url], stats: `${((performance.now() - start) / 1000).toFixed(1)} s` });
+  scroll();
+  // ponytail: a failed save leaves the picture in the chat only (right-click → Copy Image still works); the alert says why
+  reply.file = await saveImage(url, prompt).catch((e) => ((error.value = `Couldn't save it to Pictures: ${errorText(e)}`), ""));
+}
+
 async function send() {
   const text = draft.value.trim() || (pending.value.length ? READ : "");
   const podId = props.config.podId;
@@ -124,17 +144,19 @@ async function send() {
   const reply = msgs[msgs.length - 1];
   scroll();
   try {
-    await chatStream(podId, props.vllmKey, props.config.id, history, !!props.config.think, (r) => {
-      Object.assign(reply, r);
-      scroll();
-    });
+    if (draws.value) await draw(podId, text, reply);
+    else
+      await chatStream(podId, props.vllmKey, props.config.id, history, !!props.config.think, (r) => {
+        Object.assign(reply, r);
+        scroll();
+      });
   } catch (e) {
-    error.value = e instanceof Error ? e.message : String(e);
+    error.value = errorText(e);
   } finally {
     busy.value = false;
     props.fleet.s.answering = "";
     props.fleet.touch(podId);
-    if (!reply.content && !reply.thinking) msgs.pop();
+    if (!reply.content && !reply.thinking && !reply.images) msgs.pop();
   }
 }
 
@@ -168,7 +190,8 @@ const onEnter = (e: KeyboardEvent) => {
     </ol>
     <TransitionGroup v-else ref="list" tag="ol" name="msg" class="messages" aria-live="polite">
       <li v-if="!messages.length" key="hello" class="empty muted">
-        Say hello to {{ label(config.id) }}{{ vision ? ", or drop in a photo or PDF to read its text" : "" }}.
+        <template v-if="draws">Describe a picture for {{ label(config.id) }}. Each one is saved to your Pictures folder.</template>
+        <template v-else>Say hello to {{ label(config.id) }}{{ vision ? ", or drop in a photo or PDF to read its text" : "" }}.</template>
       </li>
       <li v-for="(m, i) in messages" :key="i" :class="m.role" @click="copy">
         <details v-if="m.thinking" class="think" :open="!m.content">
@@ -179,8 +202,12 @@ const onEnter = (e: KeyboardEvent) => {
           <span v-if="m.images" class="shots"><img v-for="(src, j) in m.images" :key="j" :src="src" :alt="`Image ${j + 1}`" /></span>
           <span>{{ m.content }}</span>
         </template>
+        <template v-else-if="m.images">
+          <img class="picture" :src="m.images[0]" :alt="messages[i - 1]?.content" />
+          <button v-if="m.file" class="link finder" type="button" @click="showInFinder(m.file)"><Icon name="folder-simple" :size="12" />Show in Finder</button>
+        </template>
         <div v-else-if="m.content" class="md" v-html="md(m.content)" />
-        <span v-else-if="!m.thinking">…</span>
+        <span v-else-if="!m.thinking">{{ draws ? "Drawing…" : "…" }}</span>
         <small v-if="m.stats" class="stats">{{ m.stats }}</small>
       </li>
     </TransitionGroup>
@@ -188,7 +215,7 @@ const onEnter = (e: KeyboardEvent) => {
       <li v-if="!logs.length" class="wait muted">Waiting for log lines…</li>
       <li v-for="(l, i) in logs" :key="i" :class="l.source"><time :datetime="l.ts">{{ hms(l.ts) }}</time>{{ l.line }}</li>
     </ol>
-    <p v-if="state === 'Starting'" class="note muted">Still downloading and loading the model, 2–5 min. Chat opens up when it's on.</p>
+    <p v-if="state === 'Starting'" class="note muted">Still downloading and loading the model, 2–5 min. {{ draws ? "You can describe a picture" : "Chat opens up" }} when it's on.</p>
     <p v-if="error" class="note error" role="alert">{{ error }}</p>
     <p v-if="note" class="note muted" role="status">{{ note }}</p>
     <form class="composer" @submit.prevent="send">
@@ -202,9 +229,15 @@ const onEnter = (e: KeyboardEvent) => {
         </ul>
         <textarea
           v-model="draft"
-          aria-label="Message"
+          :aria-label="draws ? 'Describe a picture' : 'Message'"
           :placeholder="
-            state === 'Starting' ? 'Chat opens when the model is ready…' : pending.length ? 'Ask about it, or Send to read out its text…' : `Message ${label(config.id)}…`
+            state === 'Starting'
+              ? 'Chat opens when the model is ready…'
+              : draws
+                ? 'Describe a picture…'
+                : pending.length
+                  ? 'Ask about it, or Send to read out its text…'
+                  : `Message ${label(config.id)}…`
           "
           :disabled="state === 'Starting'"
           rows="2"
@@ -218,7 +251,10 @@ const onEnter = (e: KeyboardEvent) => {
             </button>
             <input ref="fileEl" type="file" accept="image/*,application/pdf" multiple hidden @change="picked" />
           </template>
-          <label class="opt"><input v-model="config.think" type="checkbox" />Think first</label>
+          <div v-if="draws" class="seg shapes" role="group" aria-label="Shape">
+            <button v-for="[size, name] in SHAPES" :key="size" type="button" :title="size.replace('x', ' × ')" :aria-pressed="shape === size" @click="shape = size">{{ name }}</button>
+          </div>
+          <label v-else class="opt"><input v-model="config.think" type="checkbox" />Think first</label>
           <span class="kbd muted">Enter sends · Shift+Enter adds a line</span>
           <button v-if="state !== 'Starting'" class="link" type="button" :aria-pressed="!!config.log" @click="config.log = !config.log">
             {{ config.log ? "Hide log" : "Show log" }}
@@ -426,6 +462,26 @@ textarea:disabled {
   flex-wrap: wrap;
   gap: 6px;
   margin-bottom: 6px;
+}
+/* a picture the model made, with its Finder link under it */
+.picture {
+  display: block;
+  width: min(100%, 480px);
+  max-height: 60vh;
+  object-fit: contain;
+  object-position: left;
+  border-radius: 8px;
+}
+.link.finder {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 6px 0 0;
+  font-size: 11px;
+}
+.shapes button {
+  font-size: 10.5px;
+  padding: 2px 9px;
 }
 .shots img {
   display: block;

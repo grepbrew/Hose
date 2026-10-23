@@ -136,7 +136,8 @@ export async function podLoad(id: string, apiKey: string) {
   }
 }
 
-export type Message = { role: "user" | "assistant"; content: string; images?: string[]; thinking?: string; stats?: string }; // images: data URLs
+// images: data URLs (sent photos, or the picture a picture model made); file: where that picture was saved
+export type Message = { role: "user" | "assistant"; content: string; images?: string[]; thinking?: string; stats?: string; file?: string };
 export type Reply = { content: string; thinking: string; stats: string };
 
 /** Streams the reply; onReply gets the whole reply so far after every chunk. Resolves with the full reply and its stats. */
@@ -182,6 +183,31 @@ export async function chatStream(id: string, apiKey: string, model: string, mess
   return reply;
 }
 
+/**
+ * One picture from a vLLM-Omni pod as a PNG data URL. size "1024x1024"; steps: the model's own count (stepsOf), else
+ * vLLM-Omni's default. A request takes 10–60 s and isn't streamed.
+ */
+export async function drawImage(id: string, apiKey: string, model: string, prompt: string, size: string, steps?: number) {
+  const res = await http(`${podUrl(id)}/v1/images/generations`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ model, prompt, size, n: 1, response_format: "b64_json", ...(steps ? { num_inference_steps: steps } : {}) }),
+  });
+  if (!res.ok) {
+    // vLLM-Omni says why in {"error": {"message"}} (bad size) or {"detail"} (server busy)
+    const text = await res.text();
+    let why = text.slice(0, 200);
+    try {
+      const j = JSON.parse(text);
+      why = j.error?.message ?? j.detail ?? why;
+    } catch {}
+    throw new Error(`The model answered with error ${res.status}: ${why}`);
+  }
+  const b64 = (await res.json()).data?.[0]?.b64_json;
+  if (!b64) throw new Error("The model sent back no picture. Try again.");
+  return `data:image/png;base64,${b64}`;
+}
+
 // --- Hugging Face ------------------------------------------------------------
 
 const hfHeaders = (token: string): HeadersInit => (token ? { Authorization: `Bearer ${token}` } : {});
@@ -200,28 +226,30 @@ export async function hfModelInfo(id: string, token: string): Promise<HfInfo> {
   return { ...(await res.json()), id };
 }
 
-export type HfHit = { id: string; params: Record<string, number>; downloads: number; gated: boolean | string; thinks: boolean; vision?: boolean };
+export type HfHit = { id: string; params: Record<string, number>; downloads: number; gated: boolean | string; thinks: boolean; vision?: boolean; draws?: boolean };
 
 /**
- * Chat models matching q, by one owner if author is set, in HF's order for sort (downloads | trendingScore | createdAt,
- * all highest first). Repos parseHfModel rejects (GGUF, base models without a chat template…) are dropped.
+ * Chat models matching q (picture models with draws), by one owner if author is set, in HF's order for sort
+ * (downloads | trendingScore | createdAt, all highest first). Repos parseHfModel rejects (GGUF, base models without a
+ * chat template, pictures vLLM-Omni can't run…) are dropped.
  */
-export async function hfSearch(q: string, token: string, { author = "", sort = "downloads" } = {}): Promise<HfHit[]> {
+export async function hfSearch(q: string, token: string, { author = "", sort = "downloads", draws = false } = {}): Promise<HfHit[]> {
   const expand = ["pipeline_tag", "safetensors", "downloads", "gated", "config"].map((f) => `expand[]=${f}`).join("&");
-  const by = author ? `&author=${encodeURIComponent(author)}` : "";
+  const by = (author ? `&author=${encodeURIComponent(author)}` : "") + (draws ? "&pipeline_tag=text-to-image&library=diffusers" : "");
   const res = await http(`${HF}/api/models?search=${encodeURIComponent(q)}${by}&sort=${sort}&limit=40&${expand}`, { headers: hfHeaders(token) });
   if (!res.ok) throw new Error(`Hugging Face error ${res.status}`);
   const all: (HfInfo & { downloads: number })[] = await res.json();
   return all
     .flatMap((m) => {
       const r = parseHfModel(m, true); // gated hits stay listed; choose() asks for the token
-      return r.ok ? [{ ...r.model, downloads: m.downloads, gated: m.gated ?? false, thinks: thinks(m) }] : [];
+      return r.ok && !!r.model.draws === draws ? [{ ...r.model, downloads: m.downloads, gated: m.gated ?? false, thinks: thinks(m) }] : [];
     })
     .slice(0, 12);
 }
 
 // Gated models: the token must belong to someone who accepted the licence on the model page.
-export async function hfCanDownload(id: string, token: string): Promise<boolean> {
-  const res = await http(`${HF}/${id}/resolve/main/config.json`, { method: "HEAD", headers: hfHeaders(token) });
+// A diffusers (picture) repo has model_index.json at its root instead of config.json.
+export async function hfCanDownload(id: string, token: string, draws = false): Promise<boolean> {
+  const res = await http(`${HF}/${id}/resolve/main/${draws ? "model_index.json" : "config.json"}`, { method: "HEAD", headers: hfHeaders(token) });
   return res.ok;
 }

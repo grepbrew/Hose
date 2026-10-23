@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { setupServer } from "msw/node";
 import { handlers, seed, state } from "./mocks/handlers";
-import { getBalance, listHosePods, podReady, chatStream, podLogs, hfSearch, hfModelInfo, getDatacenterName, type LogLine, type Message, type Reply } from "../src/api";
+import { getBalance, listHosePods, podReady, chatStream, drawImage, podLogs, hfSearch, hfModelInfo, getDatacenterName, type LogLine, type Message, type Reply } from "../src/api";
 
 const server = setupServer(...handlers);
 let calls: string[] = [];
@@ -89,6 +89,28 @@ describe("chatStream", () => {
   });
 });
 
+describe("drawImage", () => {
+  it("ok", async () => {
+    const url = await drawImage("pod1", "vk", "Tongyi-MAI/Z-Image-Turbo", "a red fox", "1024x1024", 9);
+
+    expect(url).toMatch(/^data:image\/png;base64,iVBORw0KGgo/);
+    expect(state.lastDraw).toEqual({
+      model: "Tongyi-MAI/Z-Image-Turbo",
+      prompt: "a red fox",
+      size: "1024x1024",
+      n: 1,
+      response_format: "b64_json",
+      num_inference_steps: 9,
+    });
+    expect(state.drawAuth).toBe("Bearer vk");
+  });
+
+  it("error", async () => {
+    // vLLM-Omni's 400 for a bad size (spike 2026-10-23): {"error": {"message": …}}
+    await expect(drawImage("broken", "vk", "Tongyi-MAI/Z-Image-Turbo", "x", "banana")).rejects.toThrow("size must be in format 'WIDTHxHEIGHT'");
+  });
+});
+
 describe("podLogs", () => {
   it("streams cleaned lines", async () => {
     const lines: LogLine[] = [];
@@ -123,6 +145,17 @@ describe("hfSearch", () => {
     expect([q.get("author"), q.get("sort")]).toEqual(["Qwen", "trendingScore"]);
     // the embedding model isn't a chat model
     expect(found).toEqual([{ id: "Qwen/Qwen3-8B", params: { BF16: 8190735360 }, downloads: 9100000, gated: false, thinks: true }]);
+  });
+
+  it("draws", async () => {
+    const flux = await hfSearch("flux", "", { draws: true });
+    const sd = await hfSearch("diffusion", "", { draws: true });
+
+    const q = new URL(urls.find((u) => u.includes("/api/models?"))!).searchParams;
+    expect([q.get("pipeline_tag"), q.get("library")]).toEqual(["text-to-image", "diffusers"]);
+    // the GGUF has no diffusers class, SD 1.5's pipeline isn't one vLLM-Omni runs
+    expect(flux).toEqual([{ id: "black-forest-labs/FLUX.1-schnell", params: { BF16: 11891178560 }, draws: true, downloads: 535807, gated: "auto", thinks: false }]);
+    expect(sd).toEqual([]);
   });
 });
 

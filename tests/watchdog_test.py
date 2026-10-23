@@ -1,10 +1,12 @@
-# TC-032, TC-077, TC-078: the on-Pod watchdog's stop decision. Run by `npm test` with `python3 -I tests/watchdog_test.py`.
+# TC-032, TC-077, TC-078: the on-Pod watchdog's stop decision. TC-170: what it reads from /metrics. Run by `npm test` with `python3 -I tests/watchdog_test.py`.
 import pathlib
 import sys
 import unittest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "src"))
-from watchdog import should_stop  # noqa: E402
+from watchdog import load, should_stop  # noqa: E402
+
+FIXTURES = pathlib.Path(__file__).resolve().parent / "fixtures"
 
 MIN = 60
 IDLE, BOOT = 10 * MIN, 20 * MIN
@@ -47,6 +49,19 @@ class ShouldStop(unittest.TestCase):
         stop = should_stop(now=5 * 60 * MIN, booted_at=0, last_activity=0, ready=True, idle_s=0, boot_s=BOOT, max_s=0)
 
         self.assertFalse(stop)
+
+
+class Load(unittest.TestCase):
+    def test_metrics_chat(self):
+        busy_done = load((FIXTURES / "vllm-metrics.txt").read_text())
+
+        self.assertEqual(busy_done, (0, 2))
+
+    # TC-170: a picture pod (vLLM-Omni) reports vllm_omni:* only; a finished picture must reset the idle timer
+    def test_metrics_omni(self):
+        busy_done = load((FIXTURES / "omni-metrics.txt").read_text())
+
+        self.assertEqual(busy_done, (0, 1))
 
 
 if __name__ == "__main__":

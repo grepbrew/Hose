@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watchEffect } from "vue";
 import { getGpus, getDatacenterName, getDataCenters, podUrl } from "../api";
-import { spendTotals, snapshotOf, diskGb, fitDisk, placeName, duration, ago, usd, offText, allDay, volumePerMo, VLLM_IMAGE, seesImages, type Cloud, type Config, type Pod } from "../cost";
+import { spendTotals, snapshotOf, diskGb, fitDisk, placeName, duration, ago, usd, offText, allDay, volumePerMo, VLLM_IMAGE, imageOf, seesImages, type Cloud, type Config, type Pod } from "../cost";
 import type { Fleet } from "../fleet";
 import Icon from "./Icon.vue";
 
@@ -11,7 +11,8 @@ const emit = defineEmits<{ turnOn: []; turnOff: []; changeGpu: []; forget: [] }>
 
 const f = props.fleet;
 const IDLE_CHOICES = [2, 5, 10, 20, 30, 60];
-const VLLM = `vLLM ${VLLM_IMAGE.split(":v")[1]}`;
+// "vLLM 0.32.0", or "vLLM-Omni 0.30.0" for a picture model
+const server = (image: string) => `${image.includes("omni") ? "vLLM-Omni" : "vLLM"} ${image.split(":v")[1]}`;
 const clock = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 const cloudName = (c?: string) => (c === "COMMUNITY" ? "Community" : "Secure");
 
@@ -67,7 +68,7 @@ async function setCloud(c: Cloud) {
 function setDisk(e: Event) {
   const el = e.target as HTMLInputElement;
   const cfg = props.config!;
-  cfg.disk = fitDisk(Number(el.value), cfg.params);
+  cfg.disk = fitDisk(Number(el.value), cfg.params, cfg.draws);
   el.value = String(cfg.disk);
 }
 const confirming = ref(false);
@@ -103,7 +104,7 @@ const copy = (r: { what: string; value: string }) =>
         <div class="li">
           <Icon name="graphics-card" /><span>{{ stray.gpu?.id.replace(/^NVIDIA /, "") ?? "GPU" }}<small>{{ cloudName(stray.cloud) }} cloud</small></span>
         </div>
-        <div class="li"><Icon name="package" /><span>{{ VLLM }}<small>Model isn't known on this Mac</small></span></div>
+        <div class="li"><Icon name="package" /><span>{{ server(stray?.image || VLLM_IMAGE) }}<small>Model isn't known on this Mac</small></span></div>
         <div v-if="machine.dataCenter" class="li"><Icon name="map-pin" /><span>{{ machine.dataCenter }}</span></div>
         <div class="li"><Icon name="cpu" /><span>{{ machine.vcpu }} vCPU · {{ machine.memoryGb }} GB RAM</span></div>
         <div class="li"><Icon name="hash" /><span class="mono">{{ stray.id }}</span></div>
@@ -171,7 +172,7 @@ const copy = (r: { what: string; value: string }) =>
           <p v-if="allDayCost" class="warn small">Stays on 24/7 until you turn it off: ≈ {{ usd(allDayCost.day) }}/day · ≈ {{ usd(allDayCost.month, 0) }}/month.</p>
           <div class="f">
             <label class="l" for="disk-edit">Storage (GB)</label>
-            <input id="disk-edit" type="number" class="inputish" :min="diskGb(config.params)" step="5" :value="config.disk ?? diskGb(config.params)" @change="setDisk" />
+            <input id="disk-edit" type="number" class="inputish" :min="diskGb(config.params, config.draws)" step="5" :value="config.disk ?? diskGb(config.params, config.draws)" @change="setDisk" />
           </div>
           <p v-if="editError" class="error small" role="alert">{{ editError }}</p>
         </div>
@@ -186,7 +187,7 @@ const copy = (r: { what: string; value: string }) =>
             <Icon name="package" /><span>{{ config.volumeGb }} GB storage · ≈ {{ storageMo }}/mo<small>Keeps the model{{ volumeWhere ? ` in ${volumeWhere}` : "" }} between runs</small></span>
           </div>
           <div class="li">
-            <Icon name="package" /><span class="wrap">{{ config.id }}<small>{{ VLLM }} · {{ config.disk ?? diskGb(config.params) }} GB disk</small></span>
+            <Icon name="package" /><span class="wrap">{{ config.id }}<small>{{ server(imageOf(config)) }} · {{ config.disk ?? diskGb(config.params, config.draws) }} GB disk</small></span>
           </div>
         </template>
       </section>
@@ -200,6 +201,7 @@ const copy = (r: { what: string; value: string }) =>
           </button>
         </div>
         <p class="muted tiny">Works with any OpenAI-compatible app. The address changes each time you turn it on. Anyone with the key can use the model while it's on, and their requests keep it on.</p>
+        <p v-if="config!.draws" class="muted tiny">Makes pictures at <code>/v1/images/generations</code>, like OpenAI's images API (<code>response_format: b64_json</code>).</p>
         <p v-if="seesImages(config!)" class="muted tiny">Takes images too: send them as <code>image_url</code> parts, like OpenAI's vision API.</p>
       </section>
 

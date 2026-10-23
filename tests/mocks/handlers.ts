@@ -16,6 +16,8 @@ export const state = {
   full: false, // the volume's data center has no free GPU: a pod with a network mount gets 400
   silent: "", // a pod RunPod's host never started: its log stream has no lines (seed stuck)
   lastChat: null as Record<string, any> | null, // last POST /v1/chat/completions body
+  lastDraw: null as Record<string, any> | null, // last POST /v1/images/generations body
+  drawAuth: "", // its Authorization header
   served: 0, // vLLM's finished-request count in /metrics
   soldOut: false, // every GPU's stock NONE (seed soldOut)
 };
@@ -50,12 +52,18 @@ export function seed(name: string | null) {
   state.full = false;
   state.silent = "";
   state.lastChat = null;
+  state.lastDraw = null;
+  state.drawAuth = "";
   state.served = 0;
   state.soldOut = name === "soldOut";
   if (name === "presetOff" || name === "seeOn") state.volumes.push({ id: "vol1", name: "hose-qwen3-5-9b", size: 30, dataCenter: "US-TX-3", type: "STANDARD" });
   if (name === "stored" || name === "storedOn") state.volumes.push({ id: "vol1", name: "hose-qwen3-8b", size: 25, dataCenter: "US-TX-3", type: "STANDARD" });
   if (name === "on" || name === "two" || name === "storedOn") {
     state.pods.push(pod("pod1", "hose-qwen3-8b", "NVIDIA RTX 4090", 0.89, 21));
+    state.checks.pod1 = 1;
+  }
+  if (name === "drawOn") {
+    state.pods.push({ ...pod("pod1", "hose-z-image-turbo", "NVIDIA A40", 0.59, 21), image: "vllm/vllm-omni:v0.30.0" });
     state.checks.pod1 = 1;
   }
   if (name === "seeOn") {
@@ -96,7 +104,11 @@ const HF_MODELS = [
   hfModel("deepseek-ai/DeepSeek-OCR", "image-text-to-text", 2092524, 3336106240, false, {}), // live: no chat template
   hfModel("antirez/deepseek-v4.1-flash-gguf", null, 1420082, null),
   hfModel("deepseek-ai/Janus-Pro-7B", "any-to-any", 90000, 7420000000),
-  hfModel("black-forest-labs/FLUX.1-schnell", "text-to-image", 700000, 11.9e9),
+  // picture repos (live 2026-10-23): a diffusers class name, no chat template; the GGUF has neither
+  hfModel("black-forest-labs/FLUX.1-schnell", "text-to-image", 535807, 11891178560, "auto", { diffusers: { _class_name: "FluxPipeline" } }),
+  hfModel("stable-diffusion-v1-5/stable-diffusion-v1-5", "text-to-image", 1141927, 859520964, false, { diffusers: { _class_name: "StableDiffusionPipeline" } }),
+  hfModel("city96/FLUX.1-schnell-gguf", "text-to-image", 134483, null, false, {}),
+  { ...hfModel("Tongyi-MAI/Z-Image-Turbo", "text-to-image", 654742, null, false, { diffusers: { _class_name: "ZImagePipeline" } }), safetensors: { parameters: { F32: 6154908736 }, total: 6154908736 } },
   hfModel("Qwen/Qwen3-8B", "text-generation", 9100000, 8190735360, false, THINK_CONFIG),
   hfModel("Qwen/Qwen3-Embedding-0.6B", "feature-extraction", 5200000, 595776512),
 ];
@@ -160,6 +172,9 @@ const SSE_THINK = [
   'data: {"choices":[{"index":0,"delta":{"content":"\\n</think>\\n\\n"}}]}\n\n',
   ...SSE,
 ];
+
+// a 256×256 orange gradient PNG (valid CRCs, so a browser draws it), standing in for a picture
+const PNG = "iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAIAAADTED8xAAACzElEQVR42u3ThbEQBgAFwd/PayRAIAQJENyDuwR3aqQbCrmd2Qpu5g5+/THIOpAAA4ABoDjAoUGWATAAGACSAxweZBkAA4ABIDnAkUGWATAAGACSA/w5yDIABgADQHKAo4MsA2AAMAAkBzg2yDIABgADQHKAvwZZBsAAYABIDnB8kGUADAAGgOQAfw+yDIABwACQHODEIMsAGAAMAMkBTg6yDIABwACQHODUIMsAGAAMAMkBTg+yDIABwACQHOCfQZYBMAAYAJIDnBlkGQADgAEgOcDZQZYBMAAYAJIDnBtkGQADgAEgOcC/gywDYAAwACQHOD/IMgAGAANAcoALgywDYAAwACQHuDjIMgAGAANAcoBLgywDYAAwACQHuDzIMgAGAANAcoArgywDYAAwACQHuDrIMgAGAANAcoBrgywDYAAwACQHuD7IMgAGAANAcoAbgywDYAAwACQHuDnIMgAGAANAcoBbgywDYAAwACQHuD3IMgAGAANAcoD/BlkGwABgAEgOcGeQZQAMAAaA5AB3B1kGwABgAEgOcG+QZQAMAAaA5AD3B1kGwABgAEgO8GCQZQAMAAaA5AAPB1kGwABgAEgO8GiQZQAMAAaA5ACPB1kGwABgAEgO8GSQZQAMAAaA5ABPB1kGwABgAEgO8GyQZQAMAAaA5ADPB1kGwABgAEgO8GKQZQAMAAaA5AAvB1kGwABgAEgO8GqQZQAMAAaA5ACvB1kGwABgAEgO8P8gywAYAAwAyQHeDLIMgAHAAJAc4O0gywAYAAwAyQHeDbIMgAHAAJAc4P0gywAYAAwAyQE+DLIMgAHAAJAc4OMgywAYAAwAyQE+DbIMgAHAAJAc4PMgywAYAAwAyQG+DLIMgAHAAJAc4OsgywAYAAwAyQG+DbIMgAHAAJAc4PsgywAYAAwAyQF+DLIMgAHAAJAc4OcgywAYAAwAQb8BAoWVRkOvwwgAAAAASUVORK5CYII=";
 
 // vLLM /metrics, only the lines Hose and the watchdog read
 const metrics = (done: number) =>
@@ -276,18 +291,34 @@ export const handlers = [
     if (Array.isArray(last)) return sse(SSE_SEEN(last.filter((p: { type: string }) => p.type === "image_url").length));
     return sse(state.lastChat.chat_template_kwargs?.enable_thinking ? SSE_THINK : SSE);
   }),
+  // vLLM-Omni's picture route; pod "broken" answers its 400 for a bad size (spike 2026-10-23)
+  http.post("https://*.proxy.runpod.net/v1/images/generations", async ({ request }) => {
+    state.lastDraw = (await request.json()) as Record<string, any>;
+    state.drawAuth = request.headers.get("Authorization") ?? "";
+    if (podId(request) === "broken")
+      return HttpResponse.json(
+        { error: { message: "1 validation error:\n  {'type': 'value_error', 'loc': 'body.size', 'msg': \"Value error, size must be in format 'WIDTHxHEIGHT' (e.g., '1024x1024')\"}", type: "Bad Request", code: 400 } },
+        { status: 400 },
+      );
+    state.served++;
+    return HttpResponse.json({ created: 1792743053, data: [{ b64_json: PNG, url: null, revised_prompt: null }], output_format: "png", size: state.lastDraw.size });
+  }),
   http.get("https://*.proxy.runpod.net/metrics", () => HttpResponse.text(metrics(state.served))),
   http.get("https://huggingface.co/api/whoami-v2", () => HttpResponse.json({ name: "tester" })),
   // like the live API: search matches the repo id, author the owner, sort=downloads is most downloaded first
   http.get("https://huggingface.co/api/models", ({ request }) => {
     const p = new URL(request.url).searchParams;
     const q = (p.get("search") ?? "").toLowerCase();
-    const found = HF_MODELS.filter((m) => m.id.toLowerCase().includes(q) && (!p.get("author") || m.id.startsWith(`${p.get("author")}/`)));
+    const found = HF_MODELS.filter(
+      (m) => m.id.toLowerCase().includes(q) && (!p.get("author") || m.id.startsWith(`${p.get("author")}/`)) && (!p.get("pipeline_tag") || m.pipeline_tag === p.get("pipeline_tag")),
+    );
     if (p.get("sort") === "downloads") found.sort((a, b) => b.downloads - a.downloads);
     return HttpResponse.json(found.map((m) => expand(request, m)));
   }),
-  // gated-model licence check (hfCanDownload)
-  http.head("https://huggingface.co/:org/:name/resolve/main/config.json", () => new HttpResponse(null, { status: 200 })),
+  // gated-model licence check (hfCanDownload): config.json for chat repos, model_index.json for picture repos
+  http.head("https://huggingface.co/:org/:name/resolve/main/:file", ({ params }) =>
+    new HttpResponse(null, { status: params.file === "config.json" || params.file === "model_index.json" ? 200 : 404 }),
+  ),
   http.get("https://huggingface.co/api/models/:org/:name", ({ params, request }) =>
     params.name === "missing"
       ? new HttpResponse(null, { status: 404 })
@@ -295,8 +326,10 @@ export const handlers = [
           expand(
             request,
             params.name === "FLUX.1-schnell"
-              ? { pipeline_tag: "text-to-image", gated: false, safetensors: { parameters: { BF16: 11.9e9 } }, config: {} }
-              : { pipeline_tag: "text-generation", gated: false, safetensors: { parameters: { BF16: 8e9 } }, config: CHAT_CONFIG },
+              ? { pipeline_tag: "text-to-image", gated: false, safetensors: { parameters: { BF16: 11891178560 } }, config: { diffusers: { _class_name: "FluxPipeline" } } }
+              : params.name === "stable-diffusion-v1-5"
+                ? { pipeline_tag: "text-to-image", gated: false, safetensors: { parameters: { F32: 859520964 } }, config: { diffusers: { _class_name: "StableDiffusionPipeline" } } }
+                : { pipeline_tag: "text-generation", gated: false, safetensors: { parameters: { BF16: 8e9 } }, config: CHAT_CONFIG },
           ),
         ),
   ),

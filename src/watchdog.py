@@ -1,4 +1,4 @@
-# Runs on the Pod next to vLLM (passed in via env HOSE_WATCHDOG, see podInput in cost.ts).
+# Runs on the Pod next to vLLM (or vLLM-Omni for picture models) (passed in via env HOSE_WATCHDOG, see podInput in cost.ts).
 # Deletes the Pod once nobody has chatted for HOSE_IDLE_MIN minutes (0 = never) and nothing is running, or once
 # this run has had HOSE_MAX_MIN minutes (the budget, 0 = none), so a forgotten model stops billing even when the
 # Mac sleeps or Hose is closed. The model survives on the network volume at /workspace, if Hose mounted one. Stdlib only.
@@ -21,14 +21,20 @@ def should_stop(now, booted_at, last_activity, ready, idle_s, boot_s, max_s=0):
     return bool(idle_s) and now - last_activity > idle_s
 
 
+def load(text):
+    """(requests running + waiting, finished requests so far) from /metrics text. A picture pod (vLLM-Omni) has its
+    own names and no success counter; its latency histogram's count is the finished requests."""
+    total = lambda name: sum(float(v) for v in re.findall(r"^%s(?:\{[^}]*\})? (\S+)" % re.escape(name), text, re.M))
+    busy = sum(total(n) for n in ("vllm:num_requests_running", "vllm:num_requests_waiting", "vllm_omni:num_requests_running", "vllm_omni:num_requests_waiting"))
+    return busy, total("vllm:request_success_total") + total("vllm_omni:e2e_request_latency_s_count")
+
+
 def metrics():
-    """(requests running + waiting, finished requests so far), or None while vLLM is down."""
+    """load() of the server's /metrics, or None while it is down."""
     try:
-        text = urllib.request.urlopen("http://127.0.0.1:8000/metrics", timeout=5).read().decode()
+        return load(urllib.request.urlopen("http://127.0.0.1:8000/metrics", timeout=5).read().decode())
     except Exception:
         return None
-    total = lambda name: sum(float(v) for v in re.findall(r"^%s(?:\{[^}]*\})? (\S+)" % re.escape(name), text, re.M))
-    return total("vllm:num_requests_running") + total("vllm:num_requests_waiting"), total("vllm:request_success_total")
 
 
 def call(url, method, body=None):
