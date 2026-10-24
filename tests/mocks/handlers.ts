@@ -135,7 +135,9 @@ export const GPUS = [
   gpu("A100 PCIe", 80, 1.79, 1.19, "LOW", [["EU-RO-1", "LOW"]]),
 ];
 
-const denied = (request: Request) => request.headers.get("Authorization") !== "Bearer good-key";
+// other-key: a second RunPod account with $10 and no Hose pods (key change, TC-190/191)
+const other = (request: Request) => request.headers.get("Authorization") === "Bearer other-key";
+const denied = (request: Request) => request.headers.get("Authorization") !== "Bearer good-key" && !other(request);
 const unauthorized = () => new HttpResponse("Unauthorized", { status: 401 });
 const podId = (request: Request) => new URL(request.url).hostname.split("-8000.")[0];
 
@@ -196,7 +198,7 @@ export const handlers = [
   http.post("https://api.runpod.io/graphql", async ({ request }) => {
     if (denied(request)) return unauthorized();
     const { query } = (await request.json()) as { query: string };
-    if (query.includes("myself")) return HttpResponse.json({ data: { myself: { clientBalance: 25 } } });
+    if (query.includes("myself")) return HttpResponse.json({ data: { myself: { clientBalance: other(request) ? 10 : 25 } } });
     return HttpResponse.json({ errors: [{ message: "unknown query" }] });
   }),
   // live API: only cloud=SECURE carries per data center stock
@@ -223,7 +225,7 @@ export const handlers = [
     denied(request)
       ? unauthorized()
       : HttpResponse.json({
-          pods: [...state.pods, { id: "other", name: "someone-else", status: "RUNNING", cost: 0.44 }],
+          pods: [...(other(request) ? [] : state.pods), { id: "other", name: "someone-else", status: "RUNNING", cost: 0.44 }],
           pagination: { nextCursor: null, hasNextPage: false },
         }),
   ),

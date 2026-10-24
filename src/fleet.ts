@@ -210,10 +210,13 @@ export function useFleet(key: () => string, vllmKey: () => string, hfToken: () =
 
   const TICK = 5;
   let ticks = 0;
+  let polledKey = ""; // the RunPod key s.balance belongs to
   let running = false; // a slow poll (pod still booting) must not stack up behind the next tick
   const loop = async () => {
     if (!key() || running) return;
     running = true;
+    // a new key may be another account: drop its balance and poll money this tick, not up to 30 s later
+    if (key() !== polledKey) (polledKey = key()), (ticks = 0), (s.balance = null);
     s.now = Date.now();
     s.session += (ratePerHr.value * TICK) / 3600;
     // ponytail: /metrics every 30 s like the watchdog, before refresh so the backstop sees it

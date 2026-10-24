@@ -77,6 +77,7 @@ function select(s: Sel) {
 }
 function keysSaved(k: Keys) {
   keys.value = k;
+  void fleet.start(); // poll now with the new key instead of on the next tick
   sel.value = pick(back);
 }
 </script>

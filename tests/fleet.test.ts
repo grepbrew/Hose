@@ -196,3 +196,17 @@ describe("turnOn", () => {
     expect(state.calls).toEqual(["volume resize vol1 50", "create"]);
   });
 });
+
+describe("key change", () => {
+  it("polls the new account at once", async () => {
+    let key = "good-key";
+    const f = effectScope().run(() => useFleet(() => key, () => "k1", () => ""))!;
+    await f.start();
+    key = "other-key"; // Settings › Keys saved another account's key
+
+    await f.start();
+
+    expect(f.s.balance).toBe(10);
+    expect(f.s.pods).toEqual([]);
+  });
+});
