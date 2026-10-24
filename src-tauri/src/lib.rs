@@ -60,6 +60,8 @@ pub fn run() {
         .plugin(tauri_plugin_http::init())
         // its init script opens target=_blank links (chat replies) in the default browser
         .plugin(tauri_plugin_opener::init())
+        // chat history: hose.db in ~/Library/Application Support/com.grepbrew.hose (the schema lives in src/history.ts)
+        .plugin(tauri_plugin_sql::Builder::default().build())
         .invoke_handler(tauri::generate_handler![secret_get, secret_set, secret_delete, save_image])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

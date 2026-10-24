@@ -3,6 +3,7 @@
 import { reactive, computed, watch, onUnmounted } from "vue";
 import { listHosePods, createPod, deletePod, createVolume, deleteVolume, resizeVolume, podReady, podLoad, getBalance, getGpus, getDatacenterName, getDataCenters, type Message, type Pod } from "./api";
 import { burnRatePerHr, podInput, dcIds, diskGb, volumeDc, hoseName, migrateConfigs, upsertConfig, snapshotOf, endRun, sidebarGroups, budgetMin, type Config } from "./cost";
+import { listChats, loadMessages, addChat, putMessage, deleteChat as dropChat, deleteChatsOf, chatTitle, type ChatMeta } from "./history";
 import WATCHDOG from "./watchdog.py?raw";
 
 export type { Config };
@@ -28,13 +29,54 @@ export function useFleet(key: () => string, vllmKey: () => string, hfToken: () =
     balance: null as number | null,
     session: 0,
     error: "",
+    chats: [] as ChatMeta[], // every saved chat, newest first; messages load when one is opened
   });
   // ponytail: configs in the webview's localStorage; nothing secret in them
   watch(() => s.configs, (v) => localStorage.setItem(STORE, JSON.stringify(v)), { deep: true });
 
-  // ponytail: chat history in memory only, one list per config, gone when Hose quits
-  const chats = reactive(new Map<string, Message[]>());
-  const chatOf = (c: Config) => (chats.has(c.key) ? chats.get(c.key)! : (chats.set(c.key, []), chats.get(c.key)!));
+  // Chat history: saved in SQLite (history.ts), messages kept here once loaded.
+  // A chat not sent yet lives under new:<config key> and gets its id and row on its first message.
+  const failed = (e: unknown) => (s.error = `Couldn't save the chat: ${e instanceof Error ? e.message : String(e)}`);
+  listChats().then((l) => s.chats.push(...l), failed);
+  const msgs = reactive(new Map<string, Message[]>());
+  const slot = (c: Config) => c.chat ?? `new:${c.key}`;
+  function chatOf(c: Config) {
+    const k = slot(c);
+    if (!msgs.has(k)) {
+      msgs.set(k, []);
+      if (c.chat) loadMessages(c.chat).then((m) => msgs.get(k)?.push(...m), failed);
+    }
+    return msgs.get(k)!;
+  }
+  const chatsOf = (c: Config) => s.chats.filter((x) => x.config === c.key);
+  const newChat = (c: Config) => void (c.chat = undefined);
+  const openChat = (c: Config, id: string) => void (c.chat = id);
+  /** Saves message i of the config's open chat; the first one creates the chat, titled after it. */
+  async function remember(c: Config, i: number) {
+    const list = chatOf(c);
+    let meta = s.chats.find((x) => x.id === c.chat);
+    if (!meta) {
+      const now = Date.now();
+      meta = { id: crypto.randomUUID(), config: c.key, title: chatTitle(list[0]?.content ?? ""), created: now, updated: now, n: 0 };
+      msgs.delete(slot(c));
+      msgs.set(meta.id, list);
+      c.chat = meta.id;
+      s.chats.unshift(meta);
+      meta = s.chats[0];
+      addChat(meta).catch(failed);
+    }
+    meta.updated = Date.now();
+    meta.n = Math.max(meta.n, i + 1);
+    s.chats.splice(s.chats.indexOf(meta), 1);
+    s.chats.unshift(meta);
+    await putMessage(meta.id, i, list[i], meta.updated).catch(failed);
+  }
+  async function deleteChat(c: Config, id: string) {
+    s.chats = s.chats.filter((x) => x.id !== id);
+    msgs.delete(id);
+    if (c.chat === id) c.chat = undefined;
+    await dropChat(id).catch(failed);
+  }
 
   const ratePerHr = computed(() => burnRatePerHr(s.pods));
   const groups = computed(() => sidebarGroups(s.configs, s.pods));
@@ -159,7 +201,10 @@ export function useFleet(key: () => string, vllmKey: () => string, hfToken: () =
     if (c.podId) await turnOff(c);
     await removeStorage(c);
     s.configs = s.configs.filter((x) => x.key !== c.key);
-    chats.delete(c.key);
+    for (const x of chatsOf(c)) msgs.delete(x.id);
+    msgs.delete(`new:${c.key}`);
+    s.chats = s.chats.filter((x) => x.config !== c.key);
+    await deleteChatsOf(c.key).catch(failed);
   }
   const touch = (podId: string) => (s.lastActive[podId] = Date.now());
 
@@ -179,7 +224,7 @@ export function useFleet(key: () => string, vllmKey: () => string, hfToken: () =
   const timer = setInterval(loop, TICK * 1000);
   onUnmounted(() => clearInterval(timer));
 
-  return { s, chatOf, groups, ratePerHr, podOf, state, offInMin, turnOn, turnOff, removeStorage, turnOffPod, save, forget, touch, refresh, pollUse, start: loop };
+  return { s, chatOf, chatsOf, newChat, openChat, remember, deleteChat, groups, ratePerHr, podOf, state, offInMin, turnOn, turnOff, removeStorage, turnOffPod, save, forget, touch, refresh, pollUse, start: loop };
 }
 
 export type Fleet = ReturnType<typeof useFleet>;

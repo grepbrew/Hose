@@ -3,6 +3,7 @@ import { ref, computed, nextTick } from "vue";
 import { moveTo, ago, usd, offText, allDay, volumePerMo, spendTotals, type Cloud, type Config, type GpuCard, type Pod } from "../cost";
 import type { Fleet } from "../fleet";
 import Chat from "./Chat.vue";
+import ChatList from "./ChatList.vue";
 import Details from "./Details.vue";
 import GpuPicker from "./GpuPicker.vue";
 import Icon from "./Icon.vue";
@@ -29,6 +30,16 @@ function toggle() {
   try {
     localStorage.setItem("hose.details", showDetails.value ? "1" : "0");
   } catch {}
+}
+
+// details column tabs (mockup C): the config's chats, or the pod itself
+// ponytail: tab not remembered across pods/launches; localStorage like hose.details if people ask
+const tab = ref<"chats" | "pod">("chats");
+// Off: the page shows the "This pod is off" panel until a chat is picked in the Chats tab, then that chat read-only
+const reading = ref(false);
+function newChat() {
+  f.newChat(props.config!);
+  reading.value = false;
 }
 
 // inline rename
@@ -65,6 +76,11 @@ const turnOn = () =>
     const c = props.config!;
     moved.value = (await f.turnOn(c)) ? `No free ${c.gpuName} in ${c.volumeDc} right now, so this pod downloads the model again.` : "";
   }, "turn it on");
+const turnOnLabel = computed(() => {
+  const c = props.config!;
+  if (busy.value) return "Turning on…";
+  return allDayCost.value ? `Turn on 24/7 · ${c.gpuName} · ≈ ${usd(allDayCost.value.month, 0)}/mo` : `Turn on · ${c.gpuName}${c.price ? ` · ${usd(c.price)}/hr` : ""}`;
+});
 const removeStorage = () => run(() => f.removeStorage(props.config!), "remove its storage");
 // a pod RunPod never started: delete it and ask for a new one
 const retry = () =>
@@ -144,7 +160,18 @@ const NOTE: Record<string, string> = { Starting: "· loading the model", Answeri
         </div>
       </section>
 
-      <Chat v-else-if="config && state !== 'Off'" :config="config" :fleet="fleet" :api-key="apiKey" :vllm-key="vllmKey" @retry="retry" />
+      <Chat v-else-if="config && (state !== 'Off' || (reading && config.chat))" :config="config" :fleet="fleet" :api-key="apiKey" :vllm-key="vllmKey" @retry="retry">
+        <template #off>
+          <div class="offbar" role="status">
+            <Icon name="power" :size="18" class="muted" />
+            <span class="what">
+              <b>This pod is off</b>
+              <span class="muted">Reading past chats is free. Turn it on to keep chatting.</span>
+            </span>
+            <button class="btn primary" type="button" :disabled="busy" @click="turnOn">{{ turnOnLabel }}</button>
+          </div>
+        </template>
+      </Chat>
 
       <section v-else-if="config" class="empty">
         <div class="icon-tile"><Icon name="power" :size="22" /></div>
@@ -154,15 +181,7 @@ const NOTE: Record<string, string> = { Starting: "· loading the model", Answeri
           {{ config.volumeId ? "The model is kept in storage, so it starts faster." : "Downloading and loading the model takes 5–10 min." }}
           {{ config.idleMin || config.budget ? `It turns itself off ${offText(config)}, even if you close Hose.` : "It stays on 24/7 until you turn it off." }}
         </p>
-        <button class="btn primary cta" type="button" :disabled="busy" @click="turnOn">
-          {{
-            busy
-              ? "Turning on…"
-              : allDayCost
-                ? `Turn on 24/7 · ${config.gpuName} · ≈ ${usd(allDayCost.month, 0)}/mo`
-                : `Turn on · ${config.gpuName}${config.price ? ` · ${usd(config.price)}/hr` : ""}`
-          }}
-        </button>
+        <button class="btn primary cta" type="button" :disabled="busy" @click="turnOn">{{ turnOnLabel }}</button>
         <template v-if="storageMo">
           <p class="muted small">Model kept in storage · ≈ {{ storageMo }}/mo, even while it's off.</p>
           <button class="btn quiet" type="button" :disabled="busy" @click="removeStorage">Remove storage · save ≈ {{ storageMo }}/mo</button>
@@ -185,7 +204,14 @@ const NOTE: Record<string, string> = { Starting: "· loading the model", Answeri
       </section>
 
       <aside class="details" :class="{ hidden: !showDetails }" aria-label="Pod details" :inert="!showDetails">
-        <Details :fleet="fleet" :api-key="apiKey" :vllm-key="vllmKey" :config="config" :stray="stray" :busy="busy" @turn-on="turnOn" @turn-off="turnOff" @change-gpu="changeGpu" @forget="forget" />
+        <div v-if="config" class="tabs" role="tablist" aria-label="Details">
+          <button type="button" role="tab" :aria-selected="tab === 'chats'" @click="tab = 'chats'"><Icon name="chat-circle-dots" :size="14" />Chats</button>
+          <button type="button" role="tab" :aria-selected="tab === 'pod'" @click="tab = 'pod'"><Icon name="sliders-horizontal" :size="14" />Pod</button>
+        </div>
+        <div class="pane" :role="config ? 'tabpanel' : undefined">
+          <ChatList v-if="config && tab === 'chats'" :fleet="fleet" :config="config" @open="reading = true" @new="newChat" />
+          <Details v-else :fleet="fleet" :api-key="apiKey" :vllm-key="vllmKey" :config="config" :stray="stray" :busy="busy" @turn-on="turnOn" @turn-off="turnOff" @change-gpu="changeGpu" @forget="forget" />
+        </div>
       </aside>
     </div>
   </section>
@@ -337,10 +363,77 @@ const NOTE: Record<string, string> = { Starting: "· loading the model", Answeri
   display: flex;
   gap: 8px;
 }
+/* the off bar where the composer goes, while reading a past chat */
+.offbar {
+  width: calc(100% - 40px);
+  max-width: 780px;
+  align-self: center;
+  margin: 8px 20px 22px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 12px 12px 16px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.offbar .what {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  font-size: 12px;
+}
+.offbar b {
+  font-size: 13px;
+  font-weight: 500;
+}
+/* Chats | Pod, as a segmented pair */
+.tabs {
+  flex: none;
+  width: 288px;
+  display: flex;
+  gap: 4px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+}
+.tabs button {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 30px;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  cursor: pointer;
+  transition:
+    background var(--dur) var(--ease-out),
+    color var(--dur) var(--ease-out);
+}
+.tabs button:hover {
+  color: var(--ink);
+}
+.tabs button[aria-selected="true"] {
+  color: var(--ink);
+  background: var(--paper);
+  border-color: var(--line);
+}
+.pane {
+  flex: 1;
+  min-height: 0;
+}
 /* details column slides: ease-out open, ease-in close */
 .details {
   width: 289px;
   flex: none;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
   border-left: 1px solid var(--line);
   background: var(--surface);

@@ -10,7 +10,7 @@ import Icon from "./Icon.vue";
 const props = defineProps<{ apiKey: string; vllmKey: string; config: Config; fleet: Fleet }>();
 const emit = defineEmits<{ retry: [] }>();
 
-// History lives in the fleet (memory only), so it survives switching to another pod and back.
+// History lives in the fleet (saved in SQLite by history.ts), so it survives switching pods and quitting Hose.
 const messages = computed(() => props.fleet.chatOf(props.config));
 const draft = ref("");
 const busy = ref(false);
@@ -139,6 +139,7 @@ async function send() {
   busy.value = true;
   props.fleet.s.answering = podId;
   msgs.push({ role: "user", content: text, ...(pending.value.length ? { images: pending.value.splice(0) } : {}) });
+  void props.fleet.remember(props.config, msgs.length - 1);
   const history = msgs.slice(-HISTORY);
   msgs.push({ role: "assistant", content: "" });
   const reply = msgs[msgs.length - 1];
@@ -156,7 +157,9 @@ async function send() {
     busy.value = false;
     props.fleet.s.answering = "";
     props.fleet.touch(podId);
+    // kept (a partial reply after an error too) → saved; the picture's file is set by now, draw() awaits the save
     if (!reply.content && !reply.thinking && !reply.images) msgs.pop();
+    else void props.fleet.remember(props.config, msgs.indexOf(reply));
   }
 }
 
@@ -218,7 +221,9 @@ const onEnter = (e: KeyboardEvent) => {
     <p v-if="state === 'Starting'" class="note muted">Still downloading and loading the model, 2–5 min. {{ draws ? "You can describe a picture" : "Chat opens up" }} when it's on.</p>
     <p v-if="error" class="note error" role="alert">{{ error }}</p>
     <p v-if="note" class="note muted" role="status">{{ note }}</p>
-    <form class="composer" @submit.prevent="send">
+    <!-- a past chat read while the pod is off: PodPage's Turn on bar in place of the composer -->
+    <slot v-if="state === 'Off'" name="off" />
+    <form v-else class="composer" @submit.prevent="send">
       <div class="grow">
         <ul v-if="pending.length || attaching" class="attached" aria-label="Attached images">
           <li v-for="(src, i) in pending" :key="i">

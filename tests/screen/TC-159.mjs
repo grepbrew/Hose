@@ -2,7 +2,7 @@
 // Run the `screen run:` line from tests/TEST_CASES.md: it starts the mock dev server, waits for it, then pipes this file.
 //
 // steps:
-//   1. open /?seed=seeOn 2. click Qwen3.5-9B · A40 3. expect image_url 4. manual: click Attach image or PDF and pick tests/fixtures/page-3000x2000.png in the file chooser 5. expect Remove image 1 6. click Send 7. expect I see 1 image
+//   1. open /?seed=seeOn 2. click Qwen3.5-9B · A40 3. click Pod 4. expect image_url 5. manual: click Attach image or PDF and pick tests/fixtures/page-3000x2000.png in the file chooser 6. expect Remove image 1 7. click Send 8. expect I see 1 image
 //
 // One TaskSpace per run; pass/fail comes from the snapshot assertion. The PNG is evidence only.
 const BASE = "http://localhost:5199"; // must equal `base:` in TEST_CASES.md. process.env is NOT passed into ego's node runtime.
@@ -16,6 +16,7 @@ const page = task.page("p1");
 // act
 await page.goto(`${BASE}/?seed=seeOn`, { waitUntil: "load" });
 await page.click("text=Qwen3.5-9B · A40 >> nth=0", { label: "open pod" });
+await page.click('text="Pod"', { label: "open Pod tab" });
 await page.waitForSelector('[aria-label="Message"]', { state: "visible", timeout: 10000 }).catch(() => {});
 const before = await page.snapshot();
 const chooser = page.waitForFileChooser({ timeout: 10000 });

@@ -2,7 +2,7 @@
 // Run the `screen run:` line from tests/TEST_CASES.md: it starts the mock dev server, waits for it, then pipes this file.
 //
 // steps:
-//   1. open /?seed=storedOn 2. click Qwen3-8B · RTX 4090 3. click Turn off 4. expect Model kept in storage
+//   1. open /?seed=storedOn 2. click Qwen3-8B · RTX 4090 3. click Pod 4. click Turn off 5. expect Model kept in storage
 //
 // One TaskSpace per run; pass/fail comes from the snapshot assertion. The PNG is evidence only.
 const BASE = "http://localhost:5199"; // must equal `base:` in TEST_CASES.md. process.env is NOT passed into ego's node runtime.
@@ -15,6 +15,7 @@ const page = task.page("p1");
 // act
 await page.goto(`${BASE}/?seed=storedOn`, { waitUntil: "load" });
 await page.click("text=Qwen3-8B · RTX 4090 >> nth=0", { label: "open pod" });
+await page.click('text="Pod"', { label: "open Pod tab" });
 await page.waitForSelector("text=The model stays in storage", { state: "visible", timeout: 10000 }).catch(() => {});
 const before = await page.snapshot({ scope: "full_page" });
 await page.click('text="Turn off"', { label: "turn off" });

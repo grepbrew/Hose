@@ -229,7 +229,7 @@ const copy = (r: { what: string; value: string }) =>
 
       <div class="del">
         <div v-if="confirming" class="cedit confirm">
-          <span>Delete this config? Its chat and spend history go too. Your RunPod account isn't touched.</span>
+          <span>Delete this config? Its chats and spend history go too. Your RunPod account isn't touched.</span>
           <span class="row-btns">
             <button class="btn danger" type="button" :disabled="busy" @click="emit('forget')">Delete</button>
             <button class="btn quiet" type="button" @click="confirming = false">Keep</button>

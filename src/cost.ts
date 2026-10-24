@@ -484,6 +484,7 @@ export type Config = Model & {
   last?: Last;
   think?: boolean; // chat: ask the model to reason first
   log?: boolean; // chat: server log panel under the messages
+  chat?: string; // the chat its page shows (history.ts); unset = a new chat
 };
 
 /** A new config for a model on a GPU card: Secure, off after 10 quiet minutes, the recommended storage. over = the user's choices. */
