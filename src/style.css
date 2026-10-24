@@ -328,6 +328,12 @@ button.row {
     transform: none;
   }
 }
+/* ponytail: a transparent scrim under a popover closes it on any outside click; no global listener */
+.scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 4;
+}
 
 /* page switch: ease-out in, ease-in out */
 .page-enter-active {

@@ -43,6 +43,7 @@ import {
   filterModels,
   newConfig,
   seesImages,
+  drawParams,
   type Model,
   type Config,
   type DataCenter,
@@ -616,6 +617,32 @@ const config = (over: Partial<Config> = {}): Config => ({
   pastPodIds: [],
   spentPast: 0,
   ...over,
+});
+
+// toEqual ignores undefined keys, as JSON.stringify drops them from the request
+describe("drawParams", () => {
+  const z = config({ id: "Tongyi-MAI/Z-Image-Turbo", draws: true });
+  const blank = "" as unknown as number; // what v-model.number leaves in a field the user emptied
+
+  it("blank", () => {
+    expect(drawParams(z)).toEqual({ num_inference_steps: 9 });
+    expect(drawParams({ ...z, steps: blank, seed: blank, negative: "", guidance: blank })).toEqual({ num_inference_steps: 9 });
+  });
+
+  it("override", () => {
+    expect(drawParams({ ...z, steps: 6, seed: 0 })).toEqual({ num_inference_steps: 6, seed: 0 });
+  });
+
+  it("avoid and guidance", () => {
+    expect(drawParams({ ...z, negative: " blurry ", guidance: 3 })).toEqual({ num_inference_steps: 9, negative_prompt: "blurry", guidance_scale: 3, true_cfg_scale: 3 });
+  });
+
+  it("searched model", () => {
+    const params = drawParams(config({ id: "stabilityai/stable-diffusion-3.5-medium", draws: true, guidance: 0 }));
+
+    expect(params).toEqual({ guidance_scale: 0, true_cfg_scale: 0 });
+    expect(params.num_inference_steps).toBeUndefined();
+  });
 });
 
 describe("migrateConfigs", () => {

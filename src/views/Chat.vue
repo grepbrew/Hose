@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, nextTick, onMounted, watch } from "vue";
 import { chatStream, drawImage, podLogs, type LogLine, type Message } from "../api";
-import { label, stuckBoot, seesImages, stepsOf, type Config } from "../cost";
+import { label, stuckBoot, seesImages, stepsOf, drawParams, type Config } from "../cost";
 import type { Fleet } from "../fleet";
 import { md } from "../markdown";
 import { toImages, MAX_IMAGES, saveImage, showInFinder } from "../images";
@@ -118,11 +118,13 @@ const SHAPES = [
   ["1344x768", "Landscape"],
 ] as const;
 const shape = ref<string>(SHAPES[0][0]);
+// Picture settings popover: steps, seed, avoid, guidance on the config (saved with it); blank = the model's default
+const tuning = ref(false);
 const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 async function draw(podId: string, prompt: string, reply: Message) {
   const start = performance.now();
-  const url = await drawImage(podId, props.vllmKey, props.config.id, prompt, shape.value, stepsOf(props.config.id));
+  const url = await drawImage(podId, props.vllmKey, props.config.id, prompt, shape.value, drawParams(props.config));
   Object.assign(reply, { images: [url], stats: `${((performance.now() - start) / 1000).toFixed(1)} s` });
   scroll();
   // ponytail: a failed save leaves the picture in the chat only (right-click → Copy Image still works); the alert says why
@@ -256,9 +258,46 @@ const onEnter = (e: KeyboardEvent) => {
             </button>
             <input ref="fileEl" type="file" accept="image/*,application/pdf" multiple hidden @change="picked" />
           </template>
-          <div v-if="draws" class="seg shapes" role="group" aria-label="Shape">
-            <button v-for="[size, name] in SHAPES" :key="size" type="button" :title="size.replace('x', ' × ')" :aria-pressed="shape === size" @click="shape = size">{{ name }}</button>
-          </div>
+          <template v-if="draws">
+            <div class="seg shapes" role="group" aria-label="Shape">
+              <button v-for="[size, name] in SHAPES" :key="size" type="button" :title="size.replace('x', ' × ')" :aria-pressed="shape === size" @click="shape = size">{{ name }}</button>
+            </div>
+            <div v-if="tuning" class="scrim" @click="tuning = false" />
+            <div v-if="tuning" class="tune popin" role="dialog" aria-label="Picture settings" @keydown.esc="tuning = false">
+              <span class="label">Picture settings</span>
+              <div>
+                <label for="tune-steps">Steps</label>
+                <input id="tune-steps" v-model.number="config.steps" class="field" type="number" min="1" max="200" :placeholder="String(stepsOf(config.id) ?? 'Default')" />
+                <small>More steps: finer detail, slower.</small>
+              </div>
+              <div>
+                <label for="tune-seed">Seed</label>
+                <input id="tune-seed" v-model.number="config.seed" class="field" type="number" placeholder="Random" />
+                <small>Same seed and words make the same picture.</small>
+              </div>
+              <div>
+                <label for="tune-avoid">Avoid</label>
+                <input id="tune-avoid" v-model="config.negative" class="field" placeholder="e.g. blurry, text, extra fingers" />
+                <small>Things you don't want in the picture.</small>
+              </div>
+              <div>
+                <label for="tune-guidance">Guidance</label>
+                <input id="tune-guidance" v-model.number="config.guidance" class="field" type="number" min="0" max="20" step="0.5" placeholder="Default" />
+                <small>Higher sticks closer to your words. Fast models may ignore Avoid and Guidance.</small>
+              </div>
+            </div>
+            <button
+              class="opt attach"
+              type="button"
+              aria-label="Picture settings"
+              aria-haspopup="dialog"
+              :aria-expanded="tuning"
+              @click="tuning = !tuning"
+              @keydown.esc="tuning = false"
+            >
+              <Icon name="sliders-horizontal" :size="13" />Settings
+            </button>
+          </template>
           <label v-else class="opt"><input v-model="config.think" type="checkbox" />Think first</label>
           <span class="kbd muted">Enter sends · Shift+Enter adds a line</span>
           <button v-if="state !== 'Starting'" class="link" type="button" :aria-pressed="!!config.log" @click="config.log = !config.log">
@@ -366,6 +405,7 @@ const onEnter = (e: KeyboardEvent) => {
   font-size: 12px;
 }
 .composer {
+  position: relative; /* the Picture settings popover sits on its top edge */
   width: calc(100% - 40px);
   max-width: 780px;
   align-self: center;
@@ -420,8 +460,49 @@ textarea:disabled {
   border: 0;
   padding: 0;
 }
-.attach:hover {
+.attach:hover,
+.attach[aria-expanded="true"] {
   color: var(--ink);
+}
+.attach[aria-expanded="true"] {
+  position: relative;
+  z-index: 5; /* above the scrim, so a second click closes the popover */
+}
+/* Picture settings: same card as the sidebar's Settings menu, above the composer's left edge */
+.tune {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 8px);
+  z-index: 5;
+  width: 340px;
+  padding: 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow:
+    0 12px 32px rgba(0, 0, 0, 0.14),
+    0 2px 6px rgba(0, 0, 0, 0.06);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  transform-origin: bottom left;
+}
+.tune > div {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  align-items: center;
+  gap: 3px 10px;
+  font-size: 12px;
+  font-weight: 500;
+}
+.tune .field {
+  height: 32px;
+}
+.tune small {
+  grid-column: 2;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--muted);
 }
 /* images waiting to send, and the ones sent in a bubble */
 .attached {

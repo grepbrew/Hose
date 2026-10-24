@@ -91,7 +91,7 @@ describe("chatStream", () => {
 
 describe("drawImage", () => {
   it("ok", async () => {
-    const url = await drawImage("pod1", "vk", "Tongyi-MAI/Z-Image-Turbo", "a red fox", "1024x1024", 9);
+    const url = await drawImage("pod1", "vk", "Tongyi-MAI/Z-Image-Turbo", "a red fox", "1024x1024", { num_inference_steps: 9 });
 
     expect(url).toMatch(/^data:image\/png;base64,iVBORw0KGgo/);
     expect(state.lastDraw).toEqual({
@@ -103,6 +103,13 @@ describe("drawImage", () => {
       num_inference_steps: 9,
     });
     expect(state.drawAuth).toBe("Bearer vk");
+  });
+
+  it("params", async () => {
+    await drawImage("pod1", "vk", "Qwen/Qwen-Image", "a sign", "1024x1024", { num_inference_steps: undefined, seed: 42 });
+
+    expect(state.lastDraw).toMatchObject({ seed: 42 });
+    expect(state.lastDraw).not.toHaveProperty("num_inference_steps");
   });
 
   it("error", async () => {

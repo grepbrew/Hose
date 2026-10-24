@@ -391,11 +391,6 @@ function open(s: Sel) {
 .grow {
   flex-grow: 1;
 }
-.scrim {
-  position: fixed;
-  inset: 0;
-  z-index: 4;
-}
 .menu {
   position: absolute;
   left: 8px;

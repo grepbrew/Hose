@@ -98,6 +98,27 @@ export const seesImages = (m: Model) => m.vision ?? !!PRESETS.find((p) => p.id =
 /** Denoising steps for a picture model: the preset's, else undefined (vLLM-Omni's default). */
 export const stepsOf = (id: string) => presetOf(id)?.steps;
 
+/** vLLM-Omni /v1/images/generations fields Hose sets (ImageGenerationRequest, v0.30.0). */
+export type DrawParams = { num_inference_steps?: number; seed?: number; negative_prompt?: string; guidance_scale?: number; true_cfg_scale?: number };
+
+const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
+
+/**
+ * A picture config's Picture settings as request fields. Blank (unset, or "" from an emptied number field) = the server's
+ * default, except steps, which fall back to the preset's. The same fields for every model: Guidance goes under both names
+ * (Qwen-Image reads true_cfg_scale, most pipelines guidance_scale) and each pipeline ignores what it doesn't use.
+ */
+export function drawParams(c: Config): DrawParams {
+  const steps = num(c.steps);
+  return {
+    num_inference_steps: steps && steps > 0 ? steps : stepsOf(c.id),
+    seed: num(c.seed),
+    negative_prompt: c.negative?.trim() || undefined,
+    guidance_scale: num(c.guidance),
+    true_cfg_scale: num(c.guidance),
+  };
+}
+
 // ponytail: F32 counted as 2 bytes because vLLM loads weights in bf16 by default.
 // U8/I8 counted as 1 byte, so packed 4-bit weights (gpt-oss MXFP4) are over-estimated: safe side.
 const BYTES: Record<string, number> = { F32: 2, BF16: 2, F16: 2, F8_E4M3: 1, F8_E5M2: 1, I8: 1, U8: 1 };
@@ -485,6 +506,11 @@ export type Config = Model & {
   think?: boolean; // chat: ask the model to reason first
   log?: boolean; // chat: server log panel under the messages
   chat?: string; // the chat its page shows (history.ts); unset = a new chat
+  // pictures: Picture settings, sent with each request (drawParams); blank = the model's default
+  steps?: number;
+  seed?: number;
+  negative?: string;
+  guidance?: number;
 };
 
 /** A new config for a model on a GPU card: Secure, off after 10 quiet minutes, the recommended storage. over = the user's choices. */

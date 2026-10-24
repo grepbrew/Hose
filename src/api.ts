@@ -2,7 +2,7 @@
 // management API blocks browser CORS); in vite dev / tests plain fetch is used and msw answers.
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import { isTauri } from "@tauri-apps/api/core";
-import { sseData, sseReply, replyStats, vllmLoad, logText, placeName, parseHfModel, thinks, type Cloud, type DataCenter, type Gpu, type HfInfo, type Pod } from "./cost";
+import { sseData, sseReply, replyStats, vllmLoad, logText, placeName, parseHfModel, thinks, type Cloud, type DataCenter, type DrawParams, type Gpu, type HfInfo, type Pod } from "./cost";
 
 const REST = "https://api.runpod.io/v2";
 const GQL = "https://api.runpod.io/graphql";
@@ -184,14 +184,14 @@ export async function chatStream(id: string, apiKey: string, model: string, mess
 }
 
 /**
- * One picture from a vLLM-Omni pod as a PNG data URL. size "1024x1024"; steps: the model's own count (stepsOf), else
- * vLLM-Omni's default. A request takes 10–60 s and isn't streamed.
+ * One picture from a vLLM-Omni pod as a PNG data URL. size "1024x1024"; params: the pod's Picture settings (drawParams),
+ * an unset one left out so vLLM-Omni uses its default. A request takes 10–60 s and isn't streamed.
  */
-export async function drawImage(id: string, apiKey: string, model: string, prompt: string, size: string, steps?: number) {
+export async function drawImage(id: string, apiKey: string, model: string, prompt: string, size: string, params: DrawParams = {}) {
   const res = await http(`${podUrl(id)}/v1/images/generations`, {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ model, prompt, size, n: 1, response_format: "b64_json", ...(steps ? { num_inference_steps: steps } : {}) }),
+    body: JSON.stringify({ model, prompt, size, n: 1, response_format: "b64_json", ...params }),
   });
   if (!res.ok) {
     // vLLM-Omni says why in {"error": {"message"}} (bad size) or {"detail"} (server busy)
