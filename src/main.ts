@@ -8,7 +8,7 @@ if (import.meta.env.DEV && import.meta.env.VITE_MOCK) {
   const { handlers, seed } = await import("../tests/mocks/handlers");
   const name = new URLSearchParams(location.search).get("seed");
   if (name === "fresh") localStorage.clear();
-  // unreadable keys item: loadKeys throws, like a denied or locked Keychain
+  // unreadable keys item: loadKeys throws
   else if (name === "broken") localStorage.setItem("hose.keys", "{");
   else if (name) localStorage.setItem("hose.keys", JSON.stringify({ runpod: "good-key", hf: "", vllm: "k1" }));
   // qwen is stored in the pre-2026-10-22 shape (no key/name) so every seed exercises the migration

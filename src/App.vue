@@ -41,10 +41,10 @@ async function use(k: Keys) {
   }
   loaded.value = true;
 }
-const keychainError = ref("");
-// The Keychain is read once per launch; Setup gets the keys as props and hands back what it saved.
+const keyError = ref("");
+// The keys are read once per launch; Setup gets them as props and hands back what it saved.
 async function boot() {
-  keychainError.value = "";
+  keyError.value = "";
   let k: Keys;
   try {
     k = await loadKeys();
@@ -54,8 +54,9 @@ async function boot() {
       await saveKeys(k);
     }
   } catch (e) {
-    // Denied prompt, locked Keychain or an unreadable item: say so instead of a blank window. Tauri rejects with a string.
-    keychainError.value = e instanceof Error ? e.message : String(e);
+    // Unreadable saved keys, or a denied prompt while moving them out of an old build's Keychain: say so instead of a
+    // blank window. Tauri rejects with a string.
+    keyError.value = e instanceof Error ? e.message : String(e);
     return;
   }
   await use(k);
@@ -99,11 +100,11 @@ function keysSaved(k: Keys) {
     </div>
   </template>
   <div v-else class="boot" data-tauri-drag-region>
-    <template v-if="keychainError">
-      <p class="error" role="alert">Hose couldn't read your keys from the Keychain: {{ keychainError }}</p>
+    <template v-if="keyError">
+      <p class="error" role="alert">Hose couldn't read your saved keys: {{ keyError }}</p>
       <button class="btn primary" @click="boot">Try again</button>
     </template>
-    <p v-else class="muted">Reading your keys from the Keychain…</p>
+    <p v-else class="muted">Reading your keys…</p>
   </div>
 </template>
 

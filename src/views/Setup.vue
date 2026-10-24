@@ -38,7 +38,7 @@ async function save() {
     </header>
     <div class="scroll">
       <form class="panel" @submit.prevent="save">
-        <p class="muted intro">Hose rents GPUs on your RunPod account and downloads models from Hugging Face. Your keys stay in this Mac's Keychain.</p>
+        <p class="muted intro">Hose rents GPUs on your RunPod account and downloads models from Hugging Face. Your keys stay on this Mac.</p>
         <div class="fieldset">
           <label for="runpod-key">RunPod API key</label>
           <span id="runpod-key-hint" class="hint">On runpod.io, open Settings, then API Keys, and create a key with read and write access.</span>
@@ -70,7 +70,7 @@ async function save() {
       <div class="brand"><span class="pop">Hose</span><i /></div>
       <div class="lead">
         <h1>Connect your accounts</h1>
-        <p class="muted">Hose rents GPUs on your RunPod account and downloads models from Hugging Face. Your keys stay in this Mac's Keychain.</p>
+        <p class="muted">Hose rents GPUs on your RunPod account and downloads models from Hugging Face. Your keys stay on this Mac.</p>
       </div>
       <div class="fieldset">
         <label for="runpod-key">RunPod API key</label>

@@ -14,9 +14,9 @@ const page = task.page("p1");
 
 // act
 await page.goto(`${BASE}/?seed=broken`, { waitUntil: "load" });
-// manual: the Keychain becomes readable again (the user allowed the prompt this time)
+// manual: the saved keys become readable again
 await page.evaluate(() => localStorage.setItem("hose.keys", JSON.stringify({ runpod: "good-key", hf: "", vllm: "k1" })));
-await page.click('text="Try again"', { label: "retry keychain read" });
+await page.click('text="Try again"', { label: "retry key read" });
 
 // assert: the final `expect` step. The app updates asynchronously, so wait (bounded) for the text first.
 await page.waitForSelector("text=New pod", { state: "visible", timeout: 10000 }).catch(() => {});

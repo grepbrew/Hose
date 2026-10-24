@@ -3,27 +3,23 @@ import { invoke, isTauri } from "@tauri-apps/api/core";
 export type Keys = { runpod: string; hf: string; vllm: string };
 const EMPTY: Keys = { runpod: "", hf: "", vllm: "" };
 
-// All keys live in ONE Keychain item, read once per launch: macOS asks for Keychain access per item,
-// so one item means at most one prompt. Outside Tauri (vite dev / screen tests) it falls back to localStorage.
-const ITEM = "keys";
-const LEGACY = ["runpod", "hf", "vllm"] as const; // one item per key, written by builds before 2026-10-22
+// The keys live in the app's own local storage, one JSON item. The user chose this over the Keychain (2026-10-24):
+// an app without an Apple Team ID gets a Keychain password prompt after every rebuild and update. Trade-off: any
+// program running as the user can read the file, and backups hold it unencrypted.
+const STORE = "hose.keys";
 
-const read = async (name: string): Promise<string> =>
-  isTauri() ? ((await invoke<string | null>("secret_get", { name })) ?? "") : (localStorage.getItem(`hose.${name}`) ?? "");
-const write = async (name: string, value: string) =>
-  isTauri() ? invoke("secret_set", { name, value }) : localStorage.setItem(`hose.${name}`, value);
-const remove = async (name: string) => (isTauri() ? invoke("secret_delete", { name }) : localStorage.removeItem(`hose.${name}`));
-
-export const saveKeys = (keys: Keys) => write(ITEM, JSON.stringify(keys));
+export const saveKeys = async (keys: Keys) => localStorage.setItem(STORE, JSON.stringify(keys));
 
 export async function loadKeys(): Promise<Keys> {
-  const raw = await read(ITEM);
-  if (raw) return { ...EMPTY, ...JSON.parse(raw) };
-  const keys = { ...EMPTY };
-  for (const name of LEGACY) keys[name] = await read(name);
-  if (keys.runpod || keys.hf || keys.vllm) {
-    await saveKeys(keys);
-    for (const name of LEGACY) await remove(name);
+  let raw = localStorage.getItem(STORE);
+  // builds before 0.1.3 kept them in the Keychain item `keys`: move them here once (one last prompt), then delete it there
+  if (!raw && isTauri()) {
+    raw = await invoke<string | null>("secret_get", { name: "keys" });
+    if (raw) {
+      localStorage.setItem(STORE, raw);
+      // ponytail: a failed delete leaves a stale Keychain copy that is never read again; Keychain Access can remove it
+      await invoke("secret_delete", { name: "keys" }).catch(() => {});
+    }
   }
-  return keys;
+  return { ...EMPTY, ...(raw ? JSON.parse(raw) : {}) };
 }

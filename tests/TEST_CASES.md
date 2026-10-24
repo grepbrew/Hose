@@ -22,7 +22,11 @@ Chat history 2026-10-24 changed TC-039, 055, 075, 091, 107, 159: the details col
 
 Picture settings 2026-10-24 changed TC-171: drawImage takes the vLLM-Omni request fields as one object (`{ num_inference_steps: 9 }`) instead of a steps number; same request expected.
 
+Keys stored locally 2026-10-24 changed TC-120, 121: keys live in the app's local storage (`hose.keys`) in every build, not the Keychain, so the error says "saved keys".
+
 Retired (serverless, replaced by Pods 2026-10-22): TC-002–007, 010, 013, 014, 017, 019–022, 024–026.
+
+Retired (Keychain storage, replaced by local storage 2026-10-24): TC-041–043.
 
 | ID | Feature | Type | Precondition | Steps | Expected | Code test | Status |
 |----|---------|------|--------------|-------|----------|-----------|--------|
@@ -49,9 +53,6 @@ Retired (serverless, replaced by Pods 2026-10-22): TC-002–007, 010, 013, 014, 
 | TC-038 | Chat reply | screen | seed on | 1. open /?seed=on 2. click Qwen3-8B · RTX 4090 3. fill Message = hi 4. click Send 5. expect Hello from fake GPU | streamed reply rendered | tests/screen/TC-038.mjs | pass |
 | TC-039 | Turn off | screen | seed on | 1. open /?seed=on 2. click Qwen3-8B · RTX 4090 3. click Pod 4. click Turn off 5. expect Off | config moves to Saved, pod deleted | tests/screen/TC-039.mjs | pass |
 | TC-040 | Live cost | screen | seed on | 1. open /?seed=on 2. expect Now $0.89/hr | meter shows pod cost | tests/screen/TC-040.mjs | pass |
-| TC-041 | Keys in one Keychain item | unit | Keychain item `keys` = {runpod r1, hf h1, vllm v1} | loadKeys() | returns the 3 keys with exactly one Keychain read | tests/secrets.test.ts > loadKeys > one read | pass |
-| TC-042 | Move old per-key items into one | unit | old items `runpod` = r1, `hf` = h1, no `keys` item | loadKeys() | returns r1/h1, writes item `keys`, deletes `runpod` and `hf` | tests/secrets.test.ts > loadKeys > migrates legacy items | pass |
-| TC-043 | Save writes one item | unit | empty Keychain | saveKeys({runpod r1, hf "", vllm v1}) | only item `keys` exists, holding that JSON | tests/secrets.test.ts > saveKeys > one item | pass |
 
 ## Rules
 
@@ -124,8 +125,8 @@ Retired (serverless, replaced by Pods 2026-10-22): TC-002–007, 010, 013, 014, 
 | TC-106 | Server log while on | screen | seed on | 1. open /?seed=on 2. click Qwen3-8B · RTX 4090 3. click Show log 4. expect Loading weights took 12.3 seconds | "Server log" panel under the chat; Message box still enabled | tests/screen/TC-106.mjs | pass |
 | TC-107 | API for other apps | screen | seed on | 1. open /?seed=on 2. click Qwen3-8B · RTX 4090 3. click Pod 4. expect https://pod1-8000.proxy.runpod.net/v1 5. click Copy base URL 6. expect Copied | "Use from other apps" with base URL, hidden key, model; manual: clipboard holds the URL (installed app) | tests/screen/TC-107.mjs | pass |
 | TC-108 | Chat stream fails loudly | api | msw proxy: pod "mute" streams only stop + usage + [DONE]; pod "broken" answers 500 | chatStream(id, "k1", model, msgs, false, onReply) | mute rejects "The model sent back an empty reply"; broken rejects "The model answered with error 500" | tests/api.test.ts > chatStream > %s rejects | pass |
-| TC-120 | Keychain read fails | screen | seed broken | 1. open /?seed=broken 2. expect couldn't read your keys | error with the reason and a Try again button, no blank window | tests/screen/TC-120.mjs | pass |
-| TC-121 | Keychain retry recovers | screen | seed broken | 1. open /?seed=broken 2. manual: evaluate localStorage hose.keys = {runpod good-key, hf "", vllm k1} 3. click Try again 4. expect New pod | app loads normally after the retry | tests/screen/TC-121.mjs | pass |
+| TC-120 | Key read fails | screen | seed broken | 1. open /?seed=broken 2. expect couldn't read your saved keys | error with the reason and a Try again button, no blank window | tests/screen/TC-120.mjs | pass |
+| TC-121 | Key read retry recovers | screen | seed broken | 1. open /?seed=broken 2. manual: evaluate localStorage hose.keys = {runpod good-key, hf "", vllm k1} 3. click Try again 4. expect New pod | app loads normally after the retry | tests/screen/TC-121.mjs | pass |
 | TC-130 | HF base model rejected | unit | text-generation, safetensors 8B, config without chat_template or chat_template_jinja | parseHfModel(info, true) | {ok: false, reason: "no-template"}; same info with only config.chat_template_jinja → ok | tests/cost.test.ts > parseHfModel > no template | pass |
 | TC-131 | HF no safetensors | unit | text-generation with template, no safetensors | parseHfModel(info, true) | {ok: false, reason: "no-weights"} | tests/cost.test.ts > parseHfModel > no weights | pass |
 | TC-132 | HF model info | api | msw `/api/models/:org/:name` (config only when expanded), `missing` → 404 | hfModelInfo("Qwen/Qwen3-8B", ""); hfModelInfo("org/missing", "") | first: id "Qwen/Qwen3-8B", pipeline_tag, safetensors and config.tokenizer_config.chat_template present; second rejects "No model with that name on Hugging Face" | tests/api.test.ts > hfModelInfo | pass |
@@ -197,3 +198,8 @@ Retired (serverless, replaced by Pods 2026-10-22): TC-002–007, 010, 013, 014, 
 | TC-198 | Unset settings left out of the request | api | msw images route | drawImage("pod1", "vk", "Qwen/Qwen-Image", "a sign", "1024x1024", { num_inference_steps: undefined, seed: 42 }) | request body has seed 42 and no num_inference_steps key | tests/api.test.ts > drawImage > params | pass |
 | TC-199 | Picture settings remembered | screen | seed drawOn | 1. open /?seed=drawOn 2. click Z-Image-Turbo · A40 3. click Picture settings 4. expect Guidance 5. fill Steps = 6 6. fill Seed = 42 7. click Picture settings 8. fill Describe a picture = a red fox 9. click Send 10. expect img "a red fox" 11. manual: evaluate localStorage `hose.models` | panel shows Steps (placeholder 9), Seed, Avoid and Guidance; picture shown; the Z-Image config holds steps 6, seed 42 | tests/screen/TC-199.mjs | pass |
 | TC-200 | Same seed, same picture (manual, run with TC-178 for the pod cost) | manual | real keys, `npm run tauri dev` | Z-Image-Turbo pod; Settings Seed 42; make "a red fox" twice | the two PNGs in ~/Pictures/Hose are identical (`cmp` exits 0) | — | todo |
+| TC-201 | Keys saved locally | unit | Tauri app, empty local storage and Keychain | saveKeys({runpod r1, hf "", vllm v1}) | localStorage hose.keys holds that JSON; no Keychain call | tests/secrets.test.ts > saveKeys > local storage | pass |
+| TC-202 | Keys load with no Keychain read | unit | Tauri app, hose.keys = {runpod r1, hf h1, vllm v1} | loadKeys() | returns the 3 keys; no Keychain call (so no password prompt) | tests/secrets.test.ts > loadKeys > local | pass |
+| TC-203 | Keychain keys move over once | unit | Tauri app, no hose.keys, Keychain item `keys` = {runpod r1, hf h1, vllm v1} | loadKeys(), then loadKeys() again | both return the 3 keys; hose.keys written; Keychain item deleted; the second load makes no Keychain call | tests/secrets.test.ts > loadKeys > moves keychain keys once | pass |
+| TC-204 | No keys anywhere | unit | Tauri app, no hose.keys, no Keychain item | loadKeys() | runpod, hf, vllm all ""; nothing written | tests/secrets.test.ts > loadKeys > none | pass |
+| TC-205 | Restart without a password prompt (manual) | manual | your Mac, Keychain item `keys` from an older build | `npm run tauri dev`; allow the one Keychain prompt; quit; start again | first start: one last prompt, keys still there; second start: no prompt; `security find-generic-password -s com.grepbrew.hose -a keys` says the item could not be found | — | todo |

@@ -6,7 +6,7 @@ import "katex/dist/katex.min.css";
 // CJS with exports.default: Vite's dep interop hands back { default: plugin }, Node (vitest) the plugin itself
 const katexPlugin = (katex as unknown as { default?: typeof katex }).default ?? katex;
 
-// Replies land in v-html inside a webview that can reach the Keychain: html:false escapes any HTML the model writes,
+// Replies land in v-html inside a webview that can read the saved keys: html:false escapes any HTML the model writes,
 // markdown-it's validateLink drops javascript:/file:/data: links, and images are off (no remote loads from a reply).
 const it = new MarkdownIt({
   html: false,

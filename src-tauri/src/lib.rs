@@ -1,13 +1,11 @@
-// API keys live in the macOS Keychain, never in a plain file.
+// API keys live in the app's local storage (src/secrets.ts). Builds before 0.1.3 kept them in the Keychain item "keys":
+// secret_get and secret_delete only move them out once. ponytail: drop them and the keyring crate once no Mac has that item.
 use tauri::Manager;
 
 const SERVICE: &str = "com.grepbrew.hose";
 
-// "keys" holds all secrets as one JSON item; the rest are per-key items from older builds, read once to migrate.
-const NAMES: [&str; 4] = ["keys", "runpod", "hf", "vllm"];
-
 fn entry(name: &str) -> Result<keyring::Entry, String> {
-    if !NAMES.contains(&name) {
+    if name != "keys" {
         return Err(format!("unknown secret {name}"));
     }
     keyring::Entry::new(SERVICE, name).map_err(|e| e.to_string())
@@ -20,11 +18,6 @@ fn secret_get(name: &str) -> Result<Option<String>, String> {
         Err(keyring::Error::NoEntry) => Ok(None),
         Err(e) => Err(e.to_string()),
     }
-}
-
-#[tauri::command]
-fn secret_set(name: &str, value: &str) -> Result<(), String> {
-    entry(name)?.set_password(value).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -62,7 +55,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         // chat history: hose.db in ~/Library/Application Support/com.grepbrew.hose (the schema lives in src/history.ts)
         .plugin(tauri_plugin_sql::Builder::default().build())
-        .invoke_handler(tauri::generate_handler![secret_get, secret_set, secret_delete, save_image])
+        .invoke_handler(tauri::generate_handler![secret_get, secret_delete, save_image])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
