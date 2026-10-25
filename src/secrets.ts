@@ -1,5 +1,3 @@
-import { invoke, isTauri } from "@tauri-apps/api/core";
-
 export type Keys = { runpod: string; hf: string; vllm: string };
 const EMPTY: Keys = { runpod: "", hf: "", vllm: "" };
 
@@ -11,15 +9,6 @@ const STORE = "hose.keys";
 export const saveKeys = async (keys: Keys) => localStorage.setItem(STORE, JSON.stringify(keys));
 
 export async function loadKeys(): Promise<Keys> {
-  let raw = localStorage.getItem(STORE);
-  // builds before 0.1.3 kept them in the Keychain item `keys`: move them here once (one last prompt), then delete it there
-  if (!raw && isTauri()) {
-    raw = await invoke<string | null>("secret_get", { name: "keys" });
-    if (raw) {
-      localStorage.setItem(STORE, raw);
-      // ponytail: a failed delete leaves a stale Keychain copy that is never read again; Keychain Access can remove it
-      await invoke("secret_delete", { name: "keys" }).catch(() => {});
-    }
-  }
+  const raw = localStorage.getItem(STORE);
   return { ...EMPTY, ...(raw ? JSON.parse(raw) : {}) };
 }

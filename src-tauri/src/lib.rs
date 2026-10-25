@@ -1,32 +1,5 @@
-// API keys live in the app's local storage (src/secrets.ts). Builds before 0.1.3 kept them in the Keychain item "keys":
-// secret_get and secret_delete only move them out once. ponytail: drop them and the keyring crate once no Mac has that item.
+// API keys live in the app's local storage (src/secrets.ts), not the Keychain: no Rust side.
 use tauri::Manager;
-
-const SERVICE: &str = "com.grepbrew.hose";
-
-fn entry(name: &str) -> Result<keyring::Entry, String> {
-    if name != "keys" {
-        return Err(format!("unknown secret {name}"));
-    }
-    keyring::Entry::new(SERVICE, name).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-fn secret_get(name: &str) -> Result<Option<String>, String> {
-    match entry(name)?.get_password() {
-        Ok(v) => Ok(Some(v)),
-        Err(keyring::Error::NoEntry) => Ok(None),
-        Err(e) => Err(e.to_string()),
-    }
-}
-
-#[tauri::command]
-fn secret_delete(name: &str) -> Result<(), String> {
-    match entry(name)?.delete_credential() {
-        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-        Err(e) => Err(e.to_string()),
-    }
-}
 
 // A picture from a picture pod: the PNG bytes as the raw IPC body, its file name in the `name` header.
 // Saved in ~/Pictures/Hose; returns the full path for Show in Finder.
@@ -55,7 +28,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         // chat history: hose.db in ~/Library/Application Support/com.grepbrew.hose (the schema lives in src/history.ts)
         .plugin(tauri_plugin_sql::Builder::default().build())
-        .invoke_handler(tauri::generate_handler![secret_get, secret_delete, save_image])
+        .invoke_handler(tauri::generate_handler![save_image])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

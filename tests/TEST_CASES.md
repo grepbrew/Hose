@@ -26,7 +26,7 @@ Keys stored locally 2026-10-24 changed TC-120, 121: keys live in the app's local
 
 Retired (serverless, replaced by Pods 2026-10-22): TC-002–007, 010, 013, 014, 017, 019–022, 024–026.
 
-Retired (Keychain storage, replaced by local storage 2026-10-24): TC-041–043.
+Retired (Keychain storage, replaced by local storage 2026-10-24): TC-041–043; TC-203 (the one-time Keychain move, removed with the Keychain code once no Mac had the item).
 
 | ID | Feature | Type | Precondition | Steps | Expected | Code test | Status |
 |----|---------|------|--------------|-------|----------|-----------|--------|
@@ -198,8 +198,7 @@ Retired (Keychain storage, replaced by local storage 2026-10-24): TC-041–043.
 | TC-198 | Unset settings left out of the request | api | msw images route | drawImage("pod1", "vk", "Qwen/Qwen-Image", "a sign", "1024x1024", { num_inference_steps: undefined, seed: 42 }) | request body has seed 42 and no num_inference_steps key | tests/api.test.ts > drawImage > params | pass |
 | TC-199 | Picture settings remembered | screen | seed drawOn | 1. open /?seed=drawOn 2. click Z-Image-Turbo · A40 3. click Picture settings 4. expect Guidance 5. fill Steps = 6 6. fill Seed = 42 7. click Picture settings 8. fill Describe a picture = a red fox 9. click Send 10. expect img "a red fox" 11. manual: evaluate localStorage `hose.models` | panel shows Steps (placeholder 9), Seed, Avoid and Guidance; picture shown; the Z-Image config holds steps 6, seed 42 | tests/screen/TC-199.mjs | pass |
 | TC-200 | Same seed, same picture (manual, run with TC-178 for the pod cost) | manual | real keys, `npm run tauri dev` | Z-Image-Turbo pod; Settings Seed 42; make "a red fox" twice | the two PNGs in ~/Pictures/Hose are identical (`cmp` exits 0) | — | todo |
-| TC-201 | Keys saved locally | unit | Tauri app, empty local storage and Keychain | saveKeys({runpod r1, hf "", vllm v1}) | localStorage hose.keys holds that JSON; no Keychain call | tests/secrets.test.ts > saveKeys > local storage | pass |
-| TC-202 | Keys load with no Keychain read | unit | Tauri app, hose.keys = {runpod r1, hf h1, vllm v1} | loadKeys() | returns the 3 keys; no Keychain call (so no password prompt) | tests/secrets.test.ts > loadKeys > local | pass |
-| TC-203 | Keychain keys move over once | unit | Tauri app, no hose.keys, Keychain item `keys` = {runpod r1, hf h1, vllm v1} | loadKeys(), then loadKeys() again | both return the 3 keys; hose.keys written; Keychain item deleted; the second load makes no Keychain call | tests/secrets.test.ts > loadKeys > moves keychain keys once | pass |
-| TC-204 | No keys anywhere | unit | Tauri app, no hose.keys, no Keychain item | loadKeys() | runpod, hf, vllm all ""; nothing written | tests/secrets.test.ts > loadKeys > none | pass |
-| TC-205 | Restart without a password prompt (manual) | manual | your Mac, Keychain item `keys` from an older build | `npm run tauri dev`; allow the one Keychain prompt; quit; start again | first start: one last prompt, keys still there; second start: no prompt; `security find-generic-password -s com.grepbrew.hose -a keys` says the item could not be found | — | todo |
+| TC-201 | Keys saved locally | unit | empty local storage | saveKeys({runpod r1, hf "", vllm v1}) | localStorage hose.keys holds that JSON | tests/secrets.test.ts > saveKeys > local storage | pass |
+| TC-202 | Keys load from local storage | unit | hose.keys = {runpod r1, hf h1, vllm v1} | loadKeys() | returns the 3 keys | tests/secrets.test.ts > loadKeys > local | pass |
+| TC-204 | No keys saved | unit | empty local storage | loadKeys() | runpod, hf, vllm all ""; nothing written | tests/secrets.test.ts > loadKeys > none | pass |
+| TC-205 | Restart without a password prompt (manual) | manual | `tauri dev` with keys saved; no Hose Keychain item | start `npm run tauri dev`; quit; start again | no Keychain dialog on either start (no SecurityAgent process); hose.keys still in the dev WebKit local storage (`~/Library/WebKit/hose/…/localstorage.sqlite3`) | — | pass |

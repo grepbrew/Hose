@@ -54,8 +54,7 @@ async function boot() {
       await saveKeys(k);
     }
   } catch (e) {
-    // Unreadable saved keys, or a denied prompt while moving them out of an old build's Keychain: say so instead of a
-    // blank window. Tauri rejects with a string.
+    // Unreadable saved keys: say so instead of a blank window.
     keyError.value = e instanceof Error ? e.message : String(e);
     return;
   }
