@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { ref, computed, watchEffect } from "vue";
 import { getGpus, getDatacenterName, getDataCenters, podUrl } from "../api";
-import { spendTotals, snapshotOf, diskGb, fitDisk, placeName, duration, ago, usd, offText, allDay, volumePerMo, VLLM_IMAGE, imageOf, seesImages, type Cloud, type Config, type Pod } from "../cost";
+import { spendTotals, snapshotOf, diskGb, fitDisk, placeName, duration, ago, usd, offText, allDay, volumePerMo, storageSpend, VLLM_IMAGE, imageOf, seesImages, type Cloud, type Config, type Pod } from "../cost";
 import type { Fleet } from "../fleet";
 import Icon from "./Icon.vue";
 
 // "Summary first" (mockup option C): spend tiles, the main action, then icon lists. Setup is editable only while Off.
 const props = defineProps<{ fleet: Fleet; apiKey: string; vllmKey: string; config?: Config; stray?: Pod; busy: boolean }>();
-const emit = defineEmits<{ turnOn: []; turnOff: []; changeGpu: []; forget: [] }>();
+const emit = defineEmits<{ turnOn: []; turnOff: []; changeGpu: []; forget: []; removeStorage: [] }>();
 
 const f = props.fleet;
 const IDLE_CHOICES = [2, 5, 10, 20, 30, 60];
@@ -17,7 +17,9 @@ const clock = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "2-d
 const cloudName = (c?: string) => (c === "COMMUNITY" ? "Community" : "Secure");
 
 const on = computed(() => !!props.config?.podId);
-const spend = computed(() => props.config && spendTotals(props.config));
+const spend = computed(() => props.config && spendTotals(props.config, f.s.now));
+const storageSoFar = computed(() => (props.config ? storageSpend(props.config, f.s.now) : 0));
+const day = (ms: number) => new Date(ms).toLocaleDateString([], { month: "short", day: "numeric" });
 const runs = computed(() => (props.config ? props.config.pastPodIds.length + (props.config.podId ? 1 : 0) : 0));
 
 // on 24/7 (Never, no budget): what that costs a day and a month
@@ -119,12 +121,12 @@ const copy = (r: { what: string; value: string }) =>
             <span class="t">{{ config.last?.startedAt ? `${duration(f.s.now - Date.parse(config.last.startedAt))} so far` : "just started" }}</span>
           </div>
           <div class="tile">
-            <span class="t">Spent all time</span><span class="n">≈ {{ usd(spend.allTime) }}</span><span class="t">{{ runs }} {{ runs === 1 ? "run" : "runs" }}</span>
+            <span class="t">Spent all time</span><span class="n">≈ {{ usd(spend.allTime) }}</span><span class="t">{{ runs }} {{ runs === 1 ? "run" : "runs" }}{{ storageSoFar >= 0.005 ? ` · ≈ ${usd(storageSoFar)} storage` : "" }}</span>
           </div>
         </template>
         <template v-else>
           <div class="tile">
-            <span class="t">Spent all time</span><span class="n">≈ {{ usd(spend.allTime) }}</span><span class="t">{{ runs }} {{ runs === 1 ? "run" : "runs" }}</span>
+            <span class="t">Spent all time</span><span class="n">≈ {{ usd(spend.allTime) }}</span><span class="t">{{ runs }} {{ runs === 1 ? "run" : "runs" }}{{ storageSoFar >= 0.005 ? ` · ≈ ${usd(storageSoFar)} storage` : "" }}</span>
           </div>
           <div class="tile">
             <span class="t">Costs when on</span><span class="n">{{ config.price ? usd(config.price) : "—" }}</span><span class="t">per hour</span>
@@ -183,13 +185,32 @@ const copy = (r: { what: string; value: string }) =>
           <div class="li">
             <Icon name="timer" /><span>Turns off {{ offText(config) }}<small v-if="f.state(config) === 'On' && f.offInMin(config) !== null">{{ f.offInMin(config) }} min left</small><small v-if="on && budgetLeft !== null">{{ usd(budgetLeft) }} left this run</small><small v-if="allDayCost">≈ {{ usd(allDayCost.day) }}/day · ≈ {{ usd(allDayCost.month, 0) }}/month</small></span>
           </div>
-          <div v-if="config.volumeId" class="li">
-            <Icon name="package" /><span>{{ config.volumeGb }} GB storage · ≈ {{ storageMo }}/mo<small>Keeps the model{{ volumeWhere ? ` in ${volumeWhere}` : "" }} between runs</small></span>
-          </div>
           <div class="li">
             <Icon name="package" /><span class="wrap">{{ config.id }}<small>{{ server(imageOf(config)) }} · {{ config.disk ?? diskGb(config.params, config.draws) }} GB disk</small></span>
           </div>
         </template>
+      </section>
+
+      <!-- the network volume outlives every pod and bills while off, so it gets its own section -->
+      <section class="sec">
+        <div class="sechead">
+          <span class="label">Storage</span>
+          <span v-if="on && config.volumeId" class="muted small">Turn off to remove</span>
+        </div>
+        <template v-if="config.volumeId">
+          <div class="li">
+            <Icon name="package" /><span>{{ config.volumeGb }} GB · ≈ {{ storageMo }}/mo<small>Keeps the model{{ volumeWhere ? ` in ${volumeWhere}` : "" }} between runs. Bills while off too.</small></span>
+          </div>
+          <div class="li">
+            <Icon name="coins" /><span>≈ {{ usd(storageSoFar) }} so far<small v-if="config.volumeAt">since {{ day(config.volumeAt) }}</small></span>
+          </div>
+          <button class="btn wide" type="button" :disabled="busy || on" @click="emit('removeStorage')">Remove storage · save ≈ {{ storageMo }}/mo</button>
+        </template>
+        <div v-else class="li">
+          <Icon name="package" />
+          <span v-if="config.cloud === 'SECURE'">No storage yet<small>Made on the next Turn on, so later starts skip the download.</small></span>
+          <span v-else>No storage<small>Community cloud can't keep the model: each Turn on downloads it.</small></span>
+        </div>
       </section>
 
       <section v-if="ready" class="sec">
@@ -225,7 +246,7 @@ const copy = (r: { what: string; value: string }) =>
         <p v-else class="muted small">{{ on ? "Waiting for RunPod…" : "Not turned on yet." }}</p>
       </section>
 
-      <p class="muted tiny">Spend is GPU time, estimated from run time × the hourly price. Storage isn't counted.</p>
+      <p class="muted tiny">Spend is GPU time (run time × the hourly price) plus storage (GB × $0.07/mo), both estimated.</p>
 
       <div class="del">
         <div v-if="confirming" class="cedit confirm">

@@ -500,6 +500,8 @@ export type Config = Model & {
   volumeId?: string; // network volume keeping the model between runs (Secure only); billed until removed
   volumeDc?: string; // its data center: pods that mount it must run there
   volumeGb?: number;
+  volumeAt?: number; // ms since the volume bills at volumeGb: made, resized, or first seen by Hose
+  storagePast?: number; // ≈ $ of storage before volumeAt: removed volumes, sizes before a resize
   pastPodIds: string[];
   spentPast: number; // ≈ $ of finished runs
   last?: Last;
@@ -541,17 +543,28 @@ export function moveTo(c: Config, g: GpuCard, cloud = c.cloud, location = c.loca
 
 /** Records saved before 2026-10-22 had no key or name: one config per model id. */
 export const migrateConfigs = (raw: any[]): Config[] =>
-  raw.map((c) =>
-    c.key ? c : { ...c, key: crypto.randomUUID(), name: `${label(c.id)} · ${c.gpuName}`, pastPodIds: [], spentPast: 0 },
-  );
+  raw
+    .map((c) => (c.key ? c : { ...c, key: crypto.randomUUID(), name: `${label(c.id)} · ${c.gpuName}`, pastPodIds: [], spentPast: 0 }))
+    // volumes made before 2026-10-25 have no start time: storage counts from now
+    .map((c) => (c.volumeId && !c.volumeAt ? { ...c, volumeAt: Date.now() } : c));
 
 export const upsertConfig = (list: Config[], c: Config) =>
   list.some((x) => x.key === c.key) ? list.map((x) => (x.key === c.key ? c : x)) : [...list, c];
 
-// ponytail: spend is estimated (time × $/hr), not read from RunPod billing; shown with "≈"
-export function spendTotals(c: Config) {
+/** ≈ $ a config's storage has cost: what's banked plus the current volume since volumeAt (730 h a month, as allDay). */
+export const storageSpend = (c: Config, now: number) =>
+  (c.storagePast ?? 0) + (c.volumeId && c.volumeAt ? (volumePerMo(c.volumeGb ?? 0) * Math.max(0, now - c.volumeAt)) / (730 * 3.6e6) : 0);
+
+/** Before the volume's size changes or it goes: bank its cost so far and restart the clock. */
+export function bankStorage(c: Config, now: number) {
+  c.storagePast = storageSpend(c, now);
+  c.volumeAt = now;
+}
+
+// ponytail: spend is estimated (time × $/hr, GB × $/mo), not read from RunPod billing; shown with "≈"
+export function spendTotals(c: Config, now = Date.now()) {
   const run = c.podId ? (c.last?.runSpend ?? 0) : 0;
-  return { run, allTime: c.spentPast + run };
+  return { run, allTime: c.spentPast + run + storageSpend(c, now) };
 }
 
 /** Pods bill from creation (image download included), so the run estimate counts from createdAt. */
@@ -595,13 +608,17 @@ export function sidebarGroups<P extends { id: string }>(configs: Config[], pods:
   };
 }
 
-export type Sel = { kind: "new" } | { kind: "keys" } | { kind: "config"; key: string } | { kind: "stray"; podId: string };
+/** hose-* network volumes no config here keeps a model on (made on another Mac, or its config was deleted). */
+export const strayVolumes = <V extends { id: string }>(configs: Config[], volumes: V[]) => volumes.filter((v) => !configs.some((c) => c.volumeId === v.id));
+
+export type Sel = { kind: "new" } | { kind: "keys" } | { kind: "config"; key: string } | { kind: "stray"; podId: string } | { kind: "volume"; id: string };
 
 /** Launch: the last viewed item if it still exists, else the first running pod, else New pod. */
 export function initialSelection(stored: Sel | null, configs: Config[], pods: { id: string }[]): Sel {
   const exists =
     stored &&
-    (stored.kind === "config" ? configs.some((c) => c.key === stored.key) : stored.kind === "stray" ? pods.some((p) => p.id === stored.podId) : true);
+    // a stray volume isn't listed yet at launch
+    (stored.kind === "config" ? configs.some((c) => c.key === stored.key) : stored.kind === "stray" ? pods.some((p) => p.id === stored.podId) : stored.kind !== "volume");
   if (stored && exists) return stored;
   const on = configs.find((c) => c.podId);
   return on ? { kind: "config", key: on.key } : { kind: "new" };

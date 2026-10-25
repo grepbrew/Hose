@@ -1,8 +1,8 @@
 // The user's pod configs (remembered on this Mac) and their Pods on RunPod, polled while the app is open.
 // Shared by the Sidebar, New pod and pod pages.
 import { reactive, computed, watch, onUnmounted } from "vue";
-import { listHosePods, createPod, deletePod, createVolume, deleteVolume, resizeVolume, podReady, podLoad, getBalance, getGpus, getDatacenterName, getDataCenters, type Message, type Pod } from "./api";
-import { burnRatePerHr, podInput, dcIds, diskGb, volumeDc, hoseName, migrateConfigs, upsertConfig, snapshotOf, endRun, sidebarGroups, budgetMin, type Config } from "./cost";
+import { listHosePods, createPod, deletePod, createVolume, deleteVolume, resizeVolume, listHoseVolumes, podReady, podLoad, getBalance, getGpus, getDatacenterName, getDataCenters, type Message, type Pod, type Volume } from "./api";
+import { burnRatePerHr, podInput, dcIds, diskGb, volumeDc, hoseName, migrateConfigs, upsertConfig, snapshotOf, endRun, sidebarGroups, strayVolumes, bankStorage, budgetMin, type Config } from "./cost";
 import { listChats, loadMessages, addChat, putMessage, deleteChat as dropChat, deleteChatsOf, chatTitle, type ChatMeta } from "./history";
 import WATCHDOG from "./watchdog.py?raw";
 
@@ -22,6 +22,7 @@ export function useFleet(key: () => string, vllmKey: () => string, hfToken: () =
   const s = reactive({
     configs: load(),
     pods: [] as Pod[],
+    volumes: [] as Volume[], // the account's hose-* network volumes
     ready: {} as Record<string, boolean>,
     lastActive: {} as Record<string, number>, // podId -> last chat activity (or ready time), ms
     answering: "",
@@ -80,6 +81,7 @@ export function useFleet(key: () => string, vllmKey: () => string, hfToken: () =
 
   const ratePerHr = computed(() => burnRatePerHr(s.pods));
   const groups = computed(() => sidebarGroups(s.configs, s.pods));
+  const volumeStrays = computed(() => strayVolumes(s.configs, s.volumes));
   const podOf = (c: { podId?: string }) => s.pods.find((p) => p.id === c.podId);
 
   function state(c: { podId?: string }): ModelState {
@@ -136,6 +138,7 @@ export function useFleet(key: () => string, vllmKey: () => string, hfToken: () =
   }
 
   const pollMoney = guard(async () => void (s.balance = await getBalance(key())));
+  const pollVolumes = guard(async () => void (s.volumes = await listHoseVolumes(key())));
 
   // Other apps use the pod through its API (shown in Details): their requests count as activity, as the watchdog
   // counts them, so the backstop never deletes a pod in use. A pod's first reading only sets the baseline.
@@ -169,9 +172,13 @@ export function useFleet(key: () => string, vllmKey: () => string, hfToken: () =
       const dc = gpu ? volumeDc(gpu, ids, dcs) : "";
       // no volume this run if RunPod won't make one; the next Turn on tries again
       const vol = dc ? await createVolume(key(), hoseName(c.id), size, dc).catch(() => null) : null;
-      if (vol) Object.assign(c, { volumeId: vol.id, volumeDc: vol.dataCenter, volumeGb: vol.size });
+      if (vol) Object.assign(c, { volumeId: vol.id, volumeDc: vol.dataCenter, volumeGb: vol.size, volumeAt: Date.now() });
     }
-    if (c.volumeId && size > (c.volumeGb ?? 0)) c.volumeGb = (await resizeVolume(key(), c.volumeId, size)).size;
+    if (c.volumeId && size > (c.volumeGb ?? 0)) {
+      const { size: gb } = await resizeVolume(key(), c.volumeId, size);
+      bankStorage(c, Date.now());
+      c.volumeGb = gb;
+    }
     let moved = false;
     let pod: Pod | null = null;
     if (c.volumeId) pod = await createPod(key(), input([c.volumeDc!], c.volumeId)).catch(() => ((moved = true), null));
@@ -187,8 +194,16 @@ export function useFleet(key: () => string, vllmKey: () => string, hfToken: () =
   }
   /** Deletes the model's network volume: no storage bill, but the next Turn on downloads the model again. */
   async function removeStorage(c: Config) {
-    if (c.volumeId) await deleteVolume(key(), c.volumeId);
-    Object.assign(c, { volumeId: undefined, volumeDc: undefined, volumeGb: undefined });
+    if (c.volumeId) await removeVolume(c.volumeId);
+    bankStorage(c, Date.now());
+    Object.assign(c, { volumeId: undefined, volumeDc: undefined, volumeGb: undefined, volumeAt: undefined });
+  }
+  /** Deletes a network volume; one already gone (removed in RunPod's console, or another account's) counts as done. */
+  async function removeVolume(id: string) {
+    await deleteVolume(key(), id).catch((e) => {
+      if (!String(e?.message).includes("RunPod error 404")) throw e;
+    });
+    s.volumes = s.volumes.filter((v) => v.id !== id);
   }
   /** A hose-* pod with no config on this Mac. */
   async function turnOffPod(id: string) {
@@ -220,14 +235,14 @@ export function useFleet(key: () => string, vllmKey: () => string, hfToken: () =
     s.now = Date.now();
     s.session += (ratePerHr.value * TICK) / 3600;
     // ponytail: /metrics every 30 s like the watchdog, before refresh so the backstop sees it
-    if (ticks++ % 6 === 0) await Promise.all([pollMoney(), pollUse()]);
+    if (ticks++ % 6 === 0) await Promise.all([pollMoney(), pollUse(), pollVolumes()]);
     await refresh();
     running = false;
   };
   const timer = setInterval(loop, TICK * 1000);
   onUnmounted(() => clearInterval(timer));
 
-  return { s, chatOf, chatsOf, newChat, openChat, remember, deleteChat, groups, ratePerHr, podOf, state, offInMin, turnOn, turnOff, removeStorage, turnOffPod, save, forget, touch, refresh, pollUse, start: loop };
+  return { s, chatOf, chatsOf, newChat, openChat, remember, deleteChat, groups, ratePerHr, podOf, state, offInMin, turnOn, turnOff, removeStorage, removeVolume, volumeStrays, turnOffPod, save, forget, touch, refresh, pollUse, start: loop };
 }
 
 export type Fleet = ReturnType<typeof useFleet>;

@@ -57,6 +57,7 @@ export function seed(name: string | null) {
   state.served = 0;
   state.soldOut = name === "soldOut";
   if (name === "presetOff" || name === "seeOn") state.volumes.push({ id: "vol1", name: "hose-qwen3-5-9b", size: 30, dataCenter: "US-TX-3", type: "STANDARD" });
+  if (name === "strayStorage") state.volumes.push({ id: "vol7", name: "hose-llama", size: 40, dataCenter: "US-TX-3", type: "STANDARD" });
   if (name === "stored" || name === "storedOn") state.volumes.push({ id: "vol1", name: "hose-qwen3-8b", size: 25, dataCenter: "US-TX-3", type: "STANDARD" });
   if (name === "on" || name === "two" || name === "storedOn") {
     state.pods.push(pod("pod1", "hose-qwen3-8b", "NVIDIA RTX 4090", 0.89, 21));
@@ -267,7 +268,12 @@ export const handlers = [
     state.calls.push(`volume resize ${v.id} ${v.size}`);
     return HttpResponse.json(v);
   }),
+  http.get(`${REST}/network-volumes`, ({ request }) => {
+    if (denied(request)) return unauthorized();
+    return HttpResponse.json({ networkVolumes: state.volumes, pagination: { nextCursor: null, hasNextPage: false } });
+  }),
   http.delete(`${REST}/network-volumes/:id`, ({ params }) => {
+    if (!state.volumes.some((v) => v.id === params.id)) return new HttpResponse("Not Found", { status: 404 });
     state.volumes = state.volumes.filter((v) => v.id !== params.id);
     state.calls.push(`volume delete ${params.id}`);
     return new HttpResponse(null, { status: 204 });

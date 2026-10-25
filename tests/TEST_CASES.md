@@ -24,6 +24,8 @@ Picture settings 2026-10-24 changed TC-171: drawImage takes the vLLM-Omni reques
 
 Keys stored locally 2026-10-24 changed TC-120, 121: keys live in the app's local storage (`hose.keys`) in every build, not the Keychain, so the error says "saved keys".
 
+Storage section 2026-10-25: the Pod tab gets a Storage section (size, ≈ $/mo, ≈ $ so far, Remove); "Spent all time" counts storage; hose-* volumes no config owns are listed in the sidebar under Storage. Seed `strayStorage` = no saved configs, volume vol7 `hose-llama` 40 GB in US-TX-3.
+
 Retired (serverless, replaced by Pods 2026-10-22): TC-002–007, 010, 013, 014, 017, 019–022, 024–026.
 
 Retired (Keychain storage, replaced by local storage 2026-10-24): TC-041–043; TC-203 (the one-time Keychain move, removed with the Keychain code once no Mac had the item).
@@ -202,3 +204,17 @@ Retired (Keychain storage, replaced by local storage 2026-10-24): TC-041–043; 
 | TC-202 | Keys load from local storage | unit | hose.keys = {runpod r1, hf h1, vllm v1} | loadKeys() | returns the 3 keys | tests/secrets.test.ts > loadKeys > local | pass |
 | TC-204 | No keys saved | unit | empty local storage | loadKeys() | runpod, hf, vllm all ""; nothing written | tests/secrets.test.ts > loadKeys > none | pass |
 | TC-205 | Restart without a password prompt (manual) | manual | `tauri dev` with keys saved; no Hose Keychain item | start `npm run tauri dev`; quit; start again | no Keychain dialog on either start (no SecurityAgent process); hose.keys still in the dev WebKit local storage (`~/Library/WebKit/hose/…/localstorage.sqlite3`) | — | pass |
+| TC-206 | Storage spend | unit | config vol1 25 GB, volumeAt = now − 730 h, storagePast 0.5 | storageSpend(c, now); same config with no volume | 2.25; 0.5 | tests/cost.test.ts > storageSpend > volume and banked | pass |
+| TC-207 | All time counts storage | unit | TC-206 config, spentPast 2, podId p1, last.runSpend 1.5 | spendTotals(c, now) | { run: 1.5, allTime: 5.75 } | tests/cost.test.ts > spendTotals > storage | pass |
+| TC-208 | Old volume counts from first seen | unit | now fixed; [{key a, volumeId vol1}, {key b}] | migrateConfigs | a.volumeAt = now; b.volumeAt undefined | tests/cost.test.ts > migrateConfigs > volumeAt | pass |
+| TC-209 | Stray volumes | unit | config volumeId vol1; volumes vol1, vol7 | strayVolumes(configs, volumes) | [vol7] | tests/cost.test.ts > strayVolumes | pass |
+| TC-210 | New volume starts the clock | api | seed none, config SECURE, now fixed | fleet.turnOn(config) | volumeAt = now | tests/fleet.test.ts > turnOn > starts the storage clock | pass |
+| TC-211 | Resize banks the old size | api | seed stored (vol1 25 GB), config disk 50, volumeAt = now − 365 h | fleet.turnOn(config) | storagePast ≈ 0.875; volumeAt = now; volumeGb 50 | tests/fleet.test.ts > turnOn > resize banks | pass |
+| TC-212 | Remove banks storage | api | seed stored, volumeAt = now − 730 h | fleet.removeStorage(config) | calls ["volume delete vol1"]; storagePast ≈ 1.75; volumeAt undefined | tests/fleet.test.ts > removeStorage > banks | pass |
+| TC-213 | Remove storage already gone in RunPod | api | seed none (no volumes), config volumeId vol9 | fleet.removeStorage(config) | resolves; volumeId/volumeDc/volumeGb cleared | tests/fleet.test.ts > removeStorage > gone | pass |
+| TC-214 | Volumes polled | api | seed stored plus vol7 hose-llama and vol8 my-data | fleet.start() | s.volumes ids [vol1, vol7]; volumeStrays ids [vol7] | tests/fleet.test.ts > volumes > polled | pass |
+| TC-215 | Remove a stray volume | api | as TC-214 | fleet.removeVolume("vol7") | calls ["volume delete vol7"]; s.volumes ids [vol1] | tests/fleet.test.ts > volumes > remove stray | pass |
+| TC-216 | Storage section | screen | seed stored (vol1 25 GB) | 1. open /?seed=stored 2. click Qwen3-8B · RTX 4090 3. click Pod 4. expect 25 GB · ≈ $1.75/mo 5. expect so far | Pod tab Storage section shows size, $/mo, ≈ $ so far and the Remove storage button | tests/screen/TC-216.mjs | pass |
+| TC-217 | Remove storage off while on | screen | seed storedOn | 1. open /?seed=storedOn 2. click Qwen3-8B · RTX 4090 3. click Pod 4. expect Turn off to remove | Remove storage button disabled while the pod is on | tests/screen/TC-217.mjs | pass |
+| TC-218 | Stray storage removed | screen | seed strayStorage (vol7 hose-llama 40 GB, no configs) | 1. open /?seed=strayStorage 2. expect ≈ $2.80/mo 3. click hose-llama 4. click Remove storage · save ≈ $2.80/mo 5. expect What do you want help with? | the sidebar Storage row and its page go; RunPod volume deleted | tests/screen/TC-218.mjs | pass |
+| TC-219 | Stray storage not reopened at launch | unit | configs a (on), b | initialSelection({kind volume, id vol7}, configs, pods) | { kind: config, key: a } (volumes aren't loaded yet at launch) | tests/cost.test.ts > initialSelection > stored volume | pass |

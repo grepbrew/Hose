@@ -2,14 +2,15 @@
 import { ref, computed, nextTick } from "vue";
 import { moveTo, ago, usd, offText, allDay, volumePerMo, spendTotals, type Cloud, type Config, type GpuCard, type Pod } from "../cost";
 import type { Fleet } from "../fleet";
+import type { Volume } from "../api";
 import Chat from "./Chat.vue";
 import ChatList from "./ChatList.vue";
 import Details from "./Details.vue";
 import GpuPicker from "./GpuPicker.vue";
 import Icon from "./Icon.vue";
 
-// One saved config (On, Starting or Off) or one stray pod: chat on the left, details on the right.
-const props = defineProps<{ fleet: Fleet; apiKey: string; vllmKey: string; config?: Config; stray?: Pod }>();
+// One saved config (On, Starting or Off), one stray pod or one stray volume: chat on the left, details on the right.
+const props = defineProps<{ fleet: Fleet; apiKey: string; vllmKey: string; config?: Config; stray?: Pod; volume?: Volume }>();
 
 const f = props.fleet;
 const state = computed(() => (props.config ? f.state(props.config) : "On"));
@@ -81,7 +82,7 @@ const turnOnLabel = computed(() => {
   if (busy.value) return "Turning on…";
   return allDayCost.value ? `Turn on 24/7 · ${c.gpuName} · ≈ ${usd(allDayCost.value.month, 0)}/mo` : `Turn on · ${c.gpuName}${c.price ? ` · ${usd(c.price)}/hr` : ""}`;
 });
-const removeStorage = () => run(() => f.removeStorage(props.config!), "remove its storage");
+const removeStorage = () => run(() => (props.volume ? f.removeVolume(props.volume.id) : f.removeStorage(props.config!)), "remove its storage");
 // a pod RunPod never started: delete it and ask for a new one
 const retry = () =>
   run(async () => {
@@ -91,7 +92,7 @@ const retry = () =>
 
 // how it turns itself off, for the header: idle minutes left, budget left, or on 24/7
 const allDayCost = computed(() => (props.config && !props.config.idleMin && !props.config.budget && props.config.price ? allDay(props.config.price) : null));
-const storageMo = computed(() => (props.config?.volumeId ? usd(volumePerMo(props.config.volumeGb ?? 0)) : ""));
+const storageMo = computed(() => (props.volume ? usd(volumePerMo(props.volume.size)) : props.config?.volumeId ? usd(volumePerMo(props.config.volumeGb ?? 0)) : ""));
 const offNote = computed(() => {
   const c = props.config!;
   const left = f.offInMin(c);
@@ -133,14 +134,15 @@ const NOTE: Record<string, string> = { Starting: "· loading the model", Answeri
           {{ state === "On" ? offNote : NOTE[state] }}
         </span>
       </template>
-      <template v-else-if="stray">
-        <h1 class="title">{{ stray.name }}</h1>
+      <template v-else-if="stray || volume">
+        <h1 class="title">{{ (stray ?? volume)!.name }}</h1>
         <span class="tag">Not on this Mac</span>
       </template>
       <span class="grow" />
       <span v-if="pod" class="money rate">{{ usd(pod.cost) }}/hr</span>
+      <span v-else-if="volume" class="money rate">≈ {{ storageMo }}/mo</span>
       <span v-else-if="config?.price" class="muted when"><span class="money rate ink">{{ usd(config.price) }}/hr</span> when on</span>
-      <button class="btn quiet icon" :aria-label="showDetails ? 'Hide details' : 'Show details'" :title="showDetails ? 'Hide details' : 'Show details'" @click="toggle">
+      <button v-if="!volume" class="btn quiet icon" :aria-label="showDetails ? 'Hide details' : 'Show details'" :title="showDetails ? 'Hide details' : 'Show details'" @click="toggle">
         <Icon name="sidebar-simple" class="mirror" />
       </button>
     </header>
@@ -203,14 +205,24 @@ const NOTE: Record<string, string> = { Starting: "· loading the model", Answeri
         </button>
       </section>
 
-      <aside class="details" :class="{ hidden: !showDetails }" aria-label="Pod details" :inert="!showDetails">
+      <section v-else-if="volume" class="empty">
+        <div class="icon-tile"><Icon name="package" :size="22" /></div>
+        <h2>Storage, not tied to a pod here</h2>
+        <p class="muted">
+          Hose kept a model here for a pod set up on another Mac, or for a config that was deleted. It holds {{ volume.size }} GB in {{ volume.dataCenter }} and bills ≈ {{ storageMo }}/mo
+          until you remove it.
+        </p>
+        <button class="btn primary cta" type="button" :disabled="busy" @click="removeStorage">{{ busy ? "Removing…" : `Remove storage · save ≈ ${storageMo}/mo` }}</button>
+      </section>
+
+      <aside v-if="!volume" class="details" :class="{ hidden: !showDetails }" aria-label="Pod details" :inert="!showDetails">
         <div v-if="config" class="tabs" role="tablist" aria-label="Details">
           <button type="button" role="tab" :aria-selected="tab === 'chats'" @click="tab = 'chats'"><Icon name="chat-circle-dots" :size="14" />Chats</button>
           <button type="button" role="tab" :aria-selected="tab === 'pod'" @click="tab = 'pod'"><Icon name="sliders-horizontal" :size="14" />Pod</button>
         </div>
         <div class="pane" :role="config ? 'tabpanel' : undefined">
           <ChatList v-if="config && tab === 'chats'" :fleet="fleet" :config="config" @open="reading = true" @new="newChat" />
-          <Details v-else :fleet="fleet" :api-key="apiKey" :vllm-key="vllmKey" :config="config" :stray="stray" :busy="busy" @turn-on="turnOn" @turn-off="turnOff" @change-gpu="changeGpu" @forget="forget" />
+          <Details v-else :fleet="fleet" :api-key="apiKey" :vllm-key="vllmKey" :config="config" :stray="stray" :busy="busy" @turn-on="turnOn" @turn-off="turnOff" @change-gpu="changeGpu" @forget="forget" @remove-storage="removeStorage" />
         </div>
       </aside>
     </div>

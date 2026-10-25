@@ -163,6 +163,27 @@ function open(s: Sel) {
           </button>
         </TransitionGroup>
       </template>
+
+      <!-- hose-* volumes no config here owns: they bill until removed -->
+      <template v-if="f.volumeStrays.value.length">
+        <div class="head label saved-head">Storage</div>
+        <TransitionGroup name="side" tag="div" class="group">
+          <button
+            v-for="v in f.volumeStrays.value"
+            :key="v.id"
+            class="row"
+            :class="{ active: isSel({ kind: 'volume', id: v.id }) }"
+            :aria-current="isSel({ kind: 'volume', id: v.id }) ? 'page' : undefined"
+            @click="emit('select', { kind: 'volume', id: v.id })"
+          >
+            <Icon name="package" :size="15" class="muted" />
+            <span class="two">
+              <span class="name">{{ v.name }}</span>
+              <span class="sub">{{ v.size }} GB · ≈ {{ usd(volumePerMo(v.size)) }}/mo · not on this Mac</span>
+            </span>
+          </button>
+        </TransitionGroup>
+      </template>
     </div>
 
     <div class="foot">

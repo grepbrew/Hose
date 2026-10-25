@@ -64,9 +64,11 @@ onMounted(boot);
 
 const config = computed(() => (sel.value.kind === "config" ? fleet.s.configs.find((c) => c.key === (sel.value as { key: string }).key) : undefined));
 const stray = computed(() => (sel.value.kind === "stray" ? fleet.s.pods.find((p) => p.id === (sel.value as { podId: string }).podId) : undefined));
-// A deleted config or a stray that was turned off: show the next best page.
-watch([config, stray], () => {
-  if ((sel.value.kind === "config" && !config.value) || (sel.value.kind === "stray" && !stray.value)) sel.value = pick(null);
+const volume = computed(() => (sel.value.kind === "volume" ? fleet.s.volumes.find((v) => v.id === (sel.value as { id: string }).id) : undefined));
+// A deleted config, a stray that was turned off or a stray volume removed: show the next best page.
+watch([config, stray, volume], () => {
+  const gone = { config: !config.value, stray: !stray.value, volume: !volume.value } as Record<string, boolean>;
+  if (gone[sel.value.kind]) sel.value = pick(null);
 });
 
 // Settings › Keys returns to the page it was opened from.
@@ -94,6 +96,7 @@ function keysSaved(k: Keys) {
           <Setup v-else-if="sel.kind === 'keys'" key="keys" embedded :keys="keys" @saved="keysSaved" @cancel="sel = pick(back)" />
           <PodPage v-else-if="config" :key="config.key" :config="config" :fleet="fleet" :api-key="keys.runpod" :vllm-key="keys.vllm" />
           <PodPage v-else-if="stray" :key="stray.id" :stray="stray" :fleet="fleet" :api-key="keys.runpod" :vllm-key="keys.vllm" />
+          <PodPage v-else-if="volume" :key="volume.id" :volume="volume" :fleet="fleet" :api-key="keys.runpod" :vllm-key="keys.vllm" />
         </Transition>
       </main>
     </div>

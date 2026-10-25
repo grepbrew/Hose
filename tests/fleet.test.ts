@@ -58,6 +58,8 @@ describe("refresh", () => {
 // the model kept on network volume vol1 in US-TX-3 (seeds stored / storedOn)
 const stored = (podId = "", over: object = {}) => ({ ...old(podId), volumeId: "vol1", volumeDc: "US-TX-3", volumeGb: 25, ...over });
 const load = (c: object) => store.set("hose.models", JSON.stringify([c]));
+const H = 3.6e6;
+const vol = (id: string, name: string) => ({ id, name, size: 40, dataCenter: "US-TX-3", type: "STANDARD" });
 
 describe("turnOff", () => {
   it("keeps storage", async () => {
@@ -121,6 +123,57 @@ describe("removeStorage", () => {
     expect(c).toMatchObject({ volumeId: undefined, volumeDc: undefined, volumeGb: undefined });
     expect(f.groups.value.saved).toContain(c);
   });
+
+  it("banks", async () => {
+    seed("stored");
+    load(stored("", { volumeAt: Date.now() - 730 * H }));
+    const f = fleet();
+    const c = f.s.configs[0];
+
+    await f.removeStorage(c);
+
+    expect(state.calls).toEqual(["volume delete vol1"]);
+    expect(c.storagePast).toBeCloseTo(1.75, 3);
+    expect(c.volumeAt).toBeUndefined();
+  });
+
+  it("gone", async () => {
+    seed("none");
+    load(stored("", { volumeId: "vol9" })); // deleted in RunPod's console, or another account's
+    const f = fleet();
+    const c = f.s.configs[0];
+
+    await f.removeStorage(c);
+
+    expect(c).toMatchObject({ volumeId: undefined, volumeDc: undefined, volumeGb: undefined });
+  });
+});
+
+describe("volumes", () => {
+  it("polled", async () => {
+    seed("stored");
+    state.volumes.push(vol("vol7", "hose-llama"), vol("vol8", "my-data"));
+    load(stored());
+    const f = fleet();
+
+    await f.start();
+
+    expect(f.s.volumes.map((v) => v.id)).toEqual(["vol1", "vol7"]);
+    expect(f.volumeStrays.value.map((v) => v.id)).toEqual(["vol7"]);
+  });
+
+  it("remove stray", async () => {
+    seed("stored");
+    state.volumes.push(vol("vol7", "hose-llama"), vol("vol8", "my-data"));
+    load(stored());
+    const f = fleet();
+    await f.start();
+
+    await f.removeVolume("vol7");
+
+    expect(state.calls).toEqual(["volume delete vol7"]);
+    expect(f.s.volumes.map((v) => v.id)).toEqual(["vol1"]);
+  });
 });
 
 describe("turnOn", () => {
@@ -146,6 +199,19 @@ describe("turnOn", () => {
     expect(state.calls).toEqual(["volume create US-TX-3", "create"]);
     expect(c.volumeDc).toBe("US-TX-3");
     expect(state.lastCreate).toMatchObject({ dataCenterIds: ["US-TX-3"], mounts: { network: [{ volumeId: c.volumeId, path: "/workspace" }] } });
+  });
+
+  it("starts the storage clock", async () => {
+    seed("none");
+    load(old(""));
+    const f = fleet();
+    const c = f.s.configs[0];
+    const before = Date.now();
+
+    await f.turnOn(c);
+
+    expect(c.volumeAt).toBeGreaterThanOrEqual(before);
+    expect(c.volumeAt).toBeLessThanOrEqual(Date.now());
   });
 
   it("reuses volume", async () => {
@@ -194,6 +260,20 @@ describe("turnOn", () => {
     await f.turnOn(f.s.configs[0]);
 
     expect(state.calls).toEqual(["volume resize vol1 50", "create"]);
+  });
+
+  it("resize banks", async () => {
+    seed("stored");
+    load(stored("", { disk: 50, volumeAt: Date.now() - 365 * H }));
+    const f = fleet();
+    const c = f.s.configs[0];
+    const before = Date.now();
+
+    await f.turnOn(c);
+
+    expect(c.storagePast).toBeCloseTo(0.875, 3); // 25 GB for half a month
+    expect(c.volumeAt).toBeGreaterThanOrEqual(before);
+    expect(c.volumeGb).toBe(50);
   });
 });
 

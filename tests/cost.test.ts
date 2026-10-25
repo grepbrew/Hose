@@ -25,6 +25,8 @@ import {
   snapshotOf,
   endRun,
   sidebarGroups,
+  strayVolumes,
+  storageSpend,
   initialSelection,
   budgetMin,
   volumeDc,
@@ -658,6 +660,18 @@ describe("migrateConfigs", () => {
   });
 });
 
+describe("migrateConfigs volumeAt", () => {
+  it("volumeAt", () => {
+    const before = Date.now();
+
+    const [a, b] = migrateConfigs([config({ volumeId: "vol1" }), config({ key: "b" })]);
+
+    expect(a.volumeAt).toBeGreaterThanOrEqual(before);
+    expect(a.volumeAt).toBeLessThanOrEqual(Date.now());
+    expect(b.volumeAt).toBeUndefined();
+  });
+});
+
 describe("upsertConfig", () => {
   it("many configs per model", () => {
     const a = config();
@@ -673,7 +687,27 @@ describe("upsertConfig", () => {
 
 const last = { dataCenter: "US Texas 3", vcpu: 16, memoryGb: 62, diskGb: 45, image: VLLM_IMAGE, startedAt: "2026-10-22T10:00:00Z" };
 
+const H = 3.6e6;
+const NOW = Date.parse("2026-10-25T12:00:00Z");
+const kept = (over: Partial<Config> = {}) => config({ volumeId: "vol1", volumeDc: "US-TX-3", volumeGb: 25, volumeAt: NOW - 730 * H, storagePast: 0.5, ...over });
+
+describe("storageSpend", () => {
+  it("volume and banked", () => {
+    expect(storageSpend(kept(), NOW)).toBeCloseTo(2.25); // 0.5 banked + 25 GB × $0.07 for a 730 h month
+    expect(storageSpend(kept({ volumeId: undefined, volumeGb: undefined, volumeAt: undefined }), NOW)).toBeCloseTo(0.5);
+  });
+});
+
 describe("spendTotals", () => {
+  it("storage", () => {
+    const c = kept({ podId: "p1", spentPast: 2, last: { ...last, runSpend: 1.5 } });
+
+    const t = spendTotals(c, NOW);
+
+    expect(t.run).toBe(1.5);
+    expect(t.allTime).toBeCloseTo(5.75);
+  });
+
   it("run and all time", () => {
     const on = config({ podId: "p1", spentPast: 2, last: { ...last, runSpend: 1.5 } });
 
@@ -780,6 +814,14 @@ describe("sidebarGroups", () => {
   });
 });
 
+describe("strayVolumes", () => {
+  it("volumes no config owns", () => {
+    const vol = (id: string) => ({ id, name: "hose-x", size: 25, dataCenter: "US-TX-3" });
+
+    expect(strayVolumes([config({ volumeId: "vol1" }), config({ key: "b" })], [vol("vol1"), vol("vol7")])).toEqual([vol("vol7")]);
+  });
+});
+
 describe("initialSelection", () => {
   const a = config({ podId: "pA" });
   const b = config({ key: "b" });
@@ -790,6 +832,7 @@ describe("initialSelection", () => {
     ["stored keys", { kind: "keys" }, [a, b], { kind: "keys" }],
     ["stored gone -> first running", { kind: "config", key: "zzz" }, [b, a], { kind: "config", key: "a" }],
     ["nothing running -> new", null, [b], { kind: "new" }],
+    ["stored volume", { kind: "volume", id: "vol7" }, [a, b], { kind: "config", key: "a" }],
   ])("%s", (_, stored, configs, want) => {
     expect(initialSelection(stored, configs, pods)).toEqual(want);
   });

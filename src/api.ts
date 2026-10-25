@@ -69,6 +69,10 @@ export type Volume = { id: string; name: string; size: number; dataCenter: strin
 export const createVolume = (key: string, name: string, size: number, dataCenter: string) =>
   runpod<Volume>(`${REST}/network-volumes`, key, { method: "POST", body: JSON.stringify({ name, size, dataCenter, type: "STANDARD" }) });
 
+// ponytail: first page only, like listHosePods
+export const listHoseVolumes = (key: string) =>
+  runpod<{ networkVolumes: Volume[] }>(`${REST}/network-volumes`, key).then((r) => r.networkVolumes.filter((v) => v.name.startsWith("hose-")));
+
 export const deleteVolume = (key: string, id: string) => runpod<void>(`${REST}/network-volumes/${id}`, key, { method: "DELETE" });
 
 /** RunPod only lets a volume grow. */
