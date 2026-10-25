@@ -103,7 +103,7 @@ function open(s: Sel) {
   <nav class="side" aria-label="Pods">
     <div class="strip" data-tauri-drag-region />
 
-    <div class="brand" data-tauri-drag-region><span class="pop">Hose</span><i /></div>
+    <div class="brand" data-tauri-drag-region><img src="/hose-logo.png" alt="" width="32" height="32" draggable="false" /><span class="pop">Hose</span></div>
 
     <div class="new">
       <button class="btn" :class="{ primary: sel.kind === 'new' }" @click="emit('select', { kind: 'new' })">
@@ -253,18 +253,12 @@ function open(s: Sel) {
 .brand {
   padding: 0 18px 14px;
   display: flex;
-  align-items: baseline;
-  gap: 6px;
+  align-items: center;
+  gap: 8px;
 }
 .brand span {
   font-size: 18px;
   letter-spacing: -0.01em;
-}
-.brand i {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--accent);
 }
 .new {
   padding: 0 12px 14px;

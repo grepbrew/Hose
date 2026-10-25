@@ -67,7 +67,7 @@ async function save() {
   <div v-else class="first">
     <div class="drag" data-tauri-drag-region />
     <form class="card-in" @submit.prevent="save">
-      <div class="brand"><span class="pop">Hose</span><i /></div>
+      <div class="brand"><img src="/hose-logo.png" alt="" width="40" height="40" draggable="false" /><span class="pop">Hose</span></div>
       <div class="lead">
         <h1>Connect your accounts</h1>
         <p class="muted">Hose rents GPUs on your RunPod account and downloads models from Hugging Face. Your keys stay on this Mac.</p>
@@ -196,18 +196,12 @@ async function save() {
 }
 .brand {
   display: flex;
-  align-items: baseline;
-  gap: 6px;
+  align-items: center;
+  gap: 8px;
 }
 .brand span {
   font-size: 20px;
   letter-spacing: -0.01em;
-}
-.brand i {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--accent);
 }
 .lead {
   display: flex;
