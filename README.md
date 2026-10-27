@@ -26,6 +26,7 @@ A first Turn on takes about 5 to 10 minutes while the Pod downloads the model an
 ## Install
 
 ```sh
+brew trust --cask grepbrew/tap/hose      # Homebrew 7+ only loads casks from taps you trust
 brew install --cask grepbrew/tap/hose    # update later: brew upgrade --cask hose
 ```
 

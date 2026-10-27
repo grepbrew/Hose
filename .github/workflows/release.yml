@@ -40,7 +40,7 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: Hose ${{ github.ref_name }}
-          releaseBody: "Install or update: `brew install --cask grepbrew/tap/hose` / `brew upgrade --cask hose`"
+          releaseBody: "Install: `brew trust --cask grepbrew/tap/hose && brew install --cask grepbrew/tap/hose`. Update: `brew upgrade --cask hose`"
           args: --target universal-apple-darwin
 
       - name: Bump cask in tap
@@ -65,13 +65,14 @@ jobs:
             desc "Deploy Hugging Face chat models on RunPod GPUs and watch the cost"
             homepage "https://github.com/grepbrew/Hose"
 
-            depends_on macos: ">= :monterey"
+            depends_on macos: :monterey
 
             app "Hose.app"
 
             # Not notarized yet: clear the quarantine flag so macOS opens it without the "damaged" warning.
-            postflight do
-              system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{appdir}/Hose.app"]
+            # Homebrew 7 deprecates postflight blocks; install steps take {{appdir}} as a token.
+            postflight_steps do
+              run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "{{appdir}}/Hose.app"]
             end
 
             zap trash: [
