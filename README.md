@@ -25,13 +25,11 @@ A first Turn on takes about 5 to 10 minutes while the Pod downloads the model an
 
 ## Install
 
-No release is published yet. Once one is:
-
 ```sh
-brew install --cask grepbrew/tap/hose
+brew install --cask grepbrew/tap/hose    # update later: brew upgrade --cask hose
 ```
 
-Until then, build it from source (below). Hose is signed with a self-signed certificate, not notarized by Apple: if macOS refuses to open it, go to System Settings > Privacy & Security and click **Open Anyway**.
+Hose is not notarized by Apple (the brew build is ad-hoc signed). The cask clears the quarantine flag; if macOS still refuses to open it, go to System Settings > Privacy & Security and click **Open Anyway**.
 
 ## Your data
 
@@ -65,7 +63,7 @@ Test cases live in `tests/TEST_CASES.md`; screen tests in `tests/screen/` run wi
 
 ## Release
 
-Push a tag `vX.Y.Z` matching the version in `src-tauri/tauri.conf.json`. `.github/workflows/release.yml` runs the tests, builds a universal `.dmg`, attaches it to a GitHub release and updates the cask in `grepbrew/homebrew-tap`. It needs the repo secrets `TAP_TOKEN`, `APPLE_CERTIFICATE` and `APPLE_CERTIFICATE_PASSWORD`.
+Push a tag `vX.Y.Z` matching the version in `src-tauri/tauri.conf.json`. `.github/workflows/release.yml` runs the tests, builds a universal `.dmg`, attaches it to a GitHub release and updates the cask in `grepbrew/homebrew-tap`. It needs one repo secret, `TAP_DEPLOY_KEY`: the private half of a read-write deploy key on the tap.
 
 ## Built with
 

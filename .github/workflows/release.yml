@@ -1,6 +1,6 @@
 # Tag vX.Y.Z (matching src-tauri/tauri.conf.json "version") -> universal .dmg on a GitHub release -> cask bumped in
 # grepbrew/homebrew-tap, so `brew install --cask grepbrew/tap/hose` / `brew upgrade` pick it up.
-# Needs repo secret TAP_TOKEN: fine-grained PAT with Contents read/write on grepbrew/homebrew-tap.
+# Needs repo secret TAP_DEPLOY_KEY: private half of a read-write deploy key on grepbrew/homebrew-tap.
 name: release
 
 on:
@@ -15,6 +15,8 @@ jobs:
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
+      # The DMG name comes from tauri.conf.json, the cask from the tag: fail in seconds if they differ.
+      - run: test "${GITHUB_REF_NAME#v}" = "$(node -p "require('./src-tauri/tauri.conf.json').version")"
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -28,14 +30,13 @@ jobs:
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Signed with the self-signed "Hose Local Signing" cert (tauri.conf.json signingIdentity). A stable
-          # signature keeps Keychain access across updates; ad-hoc builds re-prompt for the password every update.
-          # Before the first tag: Keychain Access > My Certificates > "Hose Local Signing" > Export (.p12), then
-          #   base64 -i hose.p12 | gh secret set APPLE_CERTIFICATE ; gh secret set APPLE_CERTIFICATE_PASSWORD
-          # ponytail: not notarized (no Apple Developer account). With one, add APPLE_SIGNING_IDENTITY (Developer ID),
-          # APPLE_ID, APPLE_PASSWORD, APPLE_TEAM_ID and drop the quarantine postflight from the cask below.
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          # Ad-hoc signed: Tauri's APPLE_CERTIFICATE import only accepts Apple-issued certs, so the self-signed
+          # "Hose Local Signing" (local builds) can't be used here. Keys aren't in the Keychain, so a signature that
+          # changes per update costs nothing.
+          # ponytail: not notarized (no Apple Developer account). With one, set APPLE_CERTIFICATE(+_PASSWORD),
+          # APPLE_SIGNING_IDENTITY (Developer ID), APPLE_ID, APPLE_PASSWORD, APPLE_TEAM_ID and drop the quarantine
+          # postflight from the cask below.
+          APPLE_SIGNING_IDENTITY: "-"
         with:
           tagName: ${{ github.ref_name }}
           releaseName: Hose ${{ github.ref_name }}
@@ -44,13 +45,15 @@ jobs:
 
       - name: Bump cask in tap
         env:
-          GH_TOKEN: ${{ secrets.TAP_TOKEN }}
+          TAP_DEPLOY_KEY: ${{ secrets.TAP_DEPLOY_KEY }}
           TAG: ${{ github.ref_name }}
         run: |
           VERSION="${TAG#v}"
           DMG="Hose_${VERSION}_universal.dmg"
           SHA=$(shasum -a 256 "src-tauri/target/universal-apple-darwin/release/bundle/dmg/$DMG" | cut -d' ' -f1)
-          git clone "https://x-access-token:${GH_TOKEN}@github.com/grepbrew/homebrew-tap.git" tap
+          echo "$TAP_DEPLOY_KEY" > "$RUNNER_TEMP/tap_key" && chmod 600 "$RUNNER_TEMP/tap_key"
+          export GIT_SSH_COMMAND="ssh -i $RUNNER_TEMP/tap_key -o StrictHostKeyChecking=accept-new"
+          git clone git@github.com:grepbrew/homebrew-tap.git tap
           mkdir -p tap/Casks
           cat > tap/Casks/hose.rb <<EOF
           cask "hose" do
@@ -80,7 +83,6 @@ jobs:
             caveats <<~EOS
               Hose is not notarized by Apple yet. If macOS still refuses to open it, go to
               System Settings > Privacy & Security and click "Open Anyway" next to Hose.
-              Your API keys are stored in the macOS Keychain under "com.grepbrew.hose".
             EOS
           end
           EOF
