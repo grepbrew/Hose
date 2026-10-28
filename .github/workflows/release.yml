@@ -12,7 +12,10 @@ permissions:
 
 jobs:
   macos:
-    runs-on: macos-14
+    # grepbrew gets no Apple Silicon hosted runners (macos-14/15 jobs are never acquired, 2026-10-29 probe);
+    # Intel builds the universal DMG just as well.
+    # ponytail: macos-15-intel is GitHub's last Intel image; when it retires, try macos-latest again or self-host.
+    runs-on: macos-15-intel
     steps:
       - uses: actions/checkout@v4
       # The DMG name comes from tauri.conf.json, the cask from the tag: fail in seconds if they differ.

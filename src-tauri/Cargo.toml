@@ -1,6 +1,6 @@
 [package]
 name = "hose"
-version = "0.2.3"
+version = "0.2.4"
 license = "PolyForm-Noncommercial-1.0.0"
 description = "A Tauri App"
 authors = ["you"]
