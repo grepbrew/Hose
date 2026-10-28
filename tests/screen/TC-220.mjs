@@ -12,7 +12,7 @@ const checkLogo = async () => {
 };
 const capture = async name => {
   try {
-    await page.screenshot({ path: `/Users/you/Work/GitHub/gruda/hose/tests/screen/evidence/TC-220-${name}.png` });
+    await page.screenshot({ path: `${(await import("node:os")).homedir()}/Work/GitHub/gruda/hose/tests/screen/evidence/TC-220-${name}.png` });
   } catch (e) { console.log(`Evidence skipped: ${e.message}`); }
 };
 await page.goto('http://localhost:5199/?seed=fresh', { waitUntil: 'load' });

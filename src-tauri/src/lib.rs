@@ -20,8 +20,33 @@ fn save_image(app: tauri::AppHandle, request: tauri::ipc::Request<'_>) -> Result
     Ok(path.to_string_lossy().into_owned())
 }
 
+// Up to 0.2.2 the bundle id was another com.*.hose. macOS names the app's data folders after it:
+// hose.db in Application Support, local storage (keys, saved models) in WebKit. Move them over once,
+// before the webview opens, so an update keeps everything. Never overwrites the new folder.
+// ponytail: matches any com.*.hose folder; delete once nobody updates from 0.2.2 or older
+fn move_old_data(lib: &std::path::Path, id: &str) {
+    for dir in ["Application Support", "WebKit"] {
+        let new = lib.join(dir).join(id);
+        let Ok(entries) = std::fs::read_dir(lib.join(dir)) else { continue };
+        if new.exists() {
+            continue;
+        }
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if name.starts_with("com.") && name.ends_with(".hose") && name != id {
+                let _ = std::fs::rename(entry.path(), &new);
+                break;
+            }
+        }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let context = tauri::generate_context!();
+    if let Some(home) = std::env::var_os("HOME") {
+        move_old_data(&std::path::Path::new(&home).join("Library"), &context.config().identifier);
+    }
     tauri::Builder::default()
         .plugin(tauri_plugin_http::init())
         // its init script opens target=_blank links (chat replies) in the default browser
@@ -29,6 +54,48 @@ pub fn run() {
         // chat history: hose.db in ~/Library/Application Support/com.grepbrew.hose (the schema lives in src/history.ts)
         .plugin(tauri_plugin_sql::Builder::default().build())
         .invoke_handler(tauri::generate_handler![save_image])
-        .run(tauri::generate_context!())
+        .run(context)
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::move_old_data;
+    use std::fs;
+
+    fn library(name: &str) -> std::path::PathBuf {
+        let lib = std::env::temp_dir().join(format!("hose-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&lib);
+        lib
+    }
+
+    #[test]
+    fn move_old_data_moves_old_folders() {
+        let lib = library("move");
+        fs::create_dir_all(lib.join("Application Support/com.old.hose")).unwrap();
+        fs::write(lib.join("Application Support/com.old.hose/hose.db"), "chats").unwrap();
+        fs::create_dir_all(lib.join("WebKit/com.old.hose")).unwrap();
+        fs::write(lib.join("WebKit/com.old.hose/x"), "keys").unwrap();
+
+        move_old_data(&lib, "com.grepbrew.hose");
+
+        assert_eq!(fs::read_to_string(lib.join("Application Support/com.grepbrew.hose/hose.db")).unwrap(), "chats");
+        assert_eq!(fs::read_to_string(lib.join("WebKit/com.grepbrew.hose/x")).unwrap(), "keys");
+        assert!(!lib.join("Application Support/com.old.hose").exists());
+        assert!(!lib.join("WebKit/com.old.hose").exists());
+    }
+
+    #[test]
+    fn move_old_data_keeps_new_folder() {
+        let lib = library("keep");
+        fs::create_dir_all(lib.join("Application Support/com.old.hose")).unwrap();
+        fs::write(lib.join("Application Support/com.old.hose/hose.db"), "old").unwrap();
+        fs::create_dir_all(lib.join("Application Support/com.grepbrew.hose")).unwrap();
+        fs::write(lib.join("Application Support/com.grepbrew.hose/hose.db"), "new").unwrap();
+
+        move_old_data(&lib, "com.grepbrew.hose");
+
+        assert_eq!(fs::read_to_string(lib.join("Application Support/com.grepbrew.hose/hose.db")).unwrap(), "new");
+        assert_eq!(fs::read_to_string(lib.join("Application Support/com.old.hose/hose.db")).unwrap(), "old");
+    }
 }

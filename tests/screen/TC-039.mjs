@@ -7,7 +7,7 @@
 // One TaskSpace per run; pass/fail comes from the snapshot assertion. The PNG is evidence only.
 const BASE = "http://localhost:5199"; // must equal `base:` in TEST_CASES.md. process.env is NOT passed into ego's node runtime.
 const TC = "TC-039";
-const EVIDENCE = "/Users/you/Work/GitHub/gruda/hose/tests/screen/evidence";
+const EVIDENCE = `${(await import("node:os")).homedir()}/Work/GitHub/gruda/hose/tests/screen/evidence`;
 
 const task = await taskSpace(`${TC} screen test`);
 const page = task.page("p1");
