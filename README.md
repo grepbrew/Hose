@@ -69,3 +69,7 @@ Push a tag `vX.Y.Z` matching the version in `src-tauri/tauri.conf.json`. `.githu
 ## Built with
 
 Tauri 2, Vue 3, TypeScript, Vite. RunPod REST API v2 (GraphQL for the balance only), Hugging Face Hub API, vLLM `vllm/vllm-openai:v0.32.0`, vLLM-Omni `vllm/vllm-omni:v0.30.0`.
+
+## License
+
+Free for personal use, hobby projects, schools, charities and other noncommercial use, under the [PolyForm Noncommercial License 1.0.0](LICENSE). Selling Hose, or using it in a business, needs permission first: [open an issue](https://github.com/grepbrew/Hose/issues).
