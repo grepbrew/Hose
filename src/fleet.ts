@@ -250,14 +250,15 @@ export function useFleet(key: () => string, vllmKey: () => string, hfToken: () =
   // and asks for a Turn on when a tool wants a config that's off and allowed to start.
   if (isTauri()) {
     const table = () => ({ token: relayKey(), podKey: vllmKey(), routes: relayRoutes(s.configs, s.ready) });
-    watch(table, (t) => invoke("relay_set", { table: t }).then(() => (s.relayError = ""), (e) => (s.relayError = String(e))), { deep: true, immediate: true });
+    let noEvents = ""; // the relay can't ask for a Turn on: stays shown, a later relay_set doesn't clear it
+    watch(table, (t) => invoke("relay_set", { table: t }).then(() => (s.relayError = noEvents), (e) => (s.relayError = String(e))), { deep: true, immediate: true });
     const starting = new Set<string>(); // a tool sends several requests at once: one Turn on each
     listen<string>("relay-start", ({ payload }) => {
       const c = s.configs.find((x) => x.key === payload);
       if (!c || c.podId || !c.agentStart || starting.has(c.key)) return;
       starting.add(c.key);
       guard(async () => void (await turnOn(c)))().finally(() => starting.delete(c.key));
-    });
+    }).catch((e) => (s.relayError = noEvents = String(e)));
   }
 
   const timer = setInterval(loop, TICK * 1000);

@@ -34,6 +34,8 @@ Tool calling 2026-11-14 (TC-244–250): chat pods start vLLM with their family's
 
 Coding tools 2026-11-14 (TC-251–266): Claude Code and Codex reach Hose pods through a local relay in the app (127.0.0.1:41180), which routes by model name and swaps its own token for the pod key. Rust tests: `cargo test --manifest-path src-tauri/Cargo.toml`. Seed `toolsOn` = Qwen3-Coder-30B · L40S config with a ready RUNNING pod. Changed TC-201, 202, 204: the saved keys gain `relay` (the relay's own token).
 
+Relay hookup fix 2026-11-14 (TC-267): v0.2.9's CI run failed on unhandled rejections from the relay's event listener under test; a listener that can't start now shows as the relay error.
+
 Retired (serverless, replaced by Pods 2026-10-22): TC-002–007, 010, 013, 014, 017, 019–022, 024–026.
 
 Retired (Keychain storage, replaced by local storage 2026-10-24): TC-041–043; TC-203 (the one-time Keychain move, removed with the Keychain code once no Mac had the item).
@@ -273,3 +275,4 @@ Retired (Keychain storage, replaced by local storage 2026-10-24): TC-041–043; 
 | TC-264 | Detect and set up (manual) | manual | `tauri dev`, claude + codex installed | Pod tab of a chat config → Set up Claude Code; Set up Codex | buttons only for installed tools; ~/.claude/hose.json and ~/.codex/hose.config.toml written; ~/.codex/config.toml unchanged; commands shown after | — | todo: needs tauri dev |
 | TC-265 | Closing keeps the relay (manual) | manual | `tauri dev` | close the window; curl 127.0.0.1:41180/v1/models with the relay token; click the Dock icon; ⌘Q; curl again | window hides, curl lists names; window comes back; after ⌘Q connection refused | — | todo: needs tauri dev |
 | TC-266 | Real coding-tool run (manual, with TC-250) | manual | user's OK for the pod cost | allow start on Qwen3-Coder-30B; `claude -p "read package.json and say its name"`; wait for the ready notice; again; `codex exec` same | first call says "Hose is starting…"; macOS notice when ready; then both tools read the file with a tool call; idle self-off deletes the pod | — | todo: real pod, after the user's OK |
+| TC-267 | Relay hookup without an event system | unit | isTauri true, invoke records calls, event listen rejects "no event system" | useFleet(…, vllm "vk", …, relay "rk") | relay_set sent {token rk, podKey vk, routes []}; fleet.s.relayError "Error: no event system"; no unhandled rejection (npm test exits 0) | tests/relay.test.ts > relay hookup > no event system | pass |
