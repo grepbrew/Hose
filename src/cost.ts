@@ -661,7 +661,7 @@ export function sidebarGroups<P extends { id: string }>(configs: Config[], pods:
 /** hose-* network volumes no config here keeps a model on (made on another Mac, or its config was deleted). */
 export const strayVolumes = <V extends { id: string }>(configs: Config[], volumes: V[]) => volumes.filter((v) => !configs.some((c) => c.volumeId === v.id));
 
-export type Sel = { kind: "new" } | { kind: "keys" } | { kind: "config"; key: string } | { kind: "stray"; podId: string } | { kind: "volume"; id: string };
+export type Sel = { kind: "new" } | { kind: "keys" } | { kind: "tools" } | { kind: "config"; key: string } | { kind: "stray"; podId: string } | { kind: "volume"; id: string };
 
 /** Launch: the last viewed item if it still exists, else the first running pod, else New pod. */
 export function initialSelection(stored: Sel | null, configs: Config[], pods: { id: string }[]): Sel {
@@ -728,3 +728,11 @@ export const toolCommands = (name: string, ctx?: number) => ({
   claude: `${ctx ? `CLAUDE_CODE_MAX_CONTEXT_TOKENS=${ctx} ` : ""}claude --settings ~/.claude/hose.json --model ${name}`,
   codex: `codex -p hose -m ${name}${ctx ? ` -c model_context_window=${ctx}` : ""}`,
 });
+
+/** The one Set up button in Settings › Coding tools: the installed tools it sets up, "again" once all are, "" with none. */
+export function setupLabel(t: { claude: boolean; codex: boolean; claudeSetup: boolean; codexSetup: boolean }) {
+  const names = [t.claude && "Claude Code", t.codex && "Codex"].filter(Boolean);
+  if (!names.length) return "";
+  if ((!t.claude || t.claudeSetup) && (!t.codex || t.codexSetup)) return "Set up again";
+  return `Set up ${names.join(" and ")}`;
+}

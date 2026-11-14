@@ -282,8 +282,13 @@ export async function hfCanDownload(id: string, token: string, draws = false): P
 
 /** Coding tools on this Mac (src-tauri/src/lib.rs coding_tools) and whether Hose has set them up. */
 export type CodingTools = { claude: boolean; codex: boolean; claudeSetup: boolean; codexSetup: boolean };
-// ponytail: the browser (dev:mock) has no shell to look in, so both show as set up
-export const codingTools = (): Promise<CodingTools> =>
-  isTauri() ? invoke<CodingTools>("coding_tools") : Promise.resolve({ claude: true, codex: true, claudeSetup: true, codexSetup: true });
+// ponytail: the browser (dev:mock) has no shell or files: a pretend state in localStorage, both set up unless a seed says not
+const PRETEND = "hose.mockTools";
+const pretend = (): CodingTools => ({ claude: true, codex: true, claudeSetup: true, codexSetup: true, ...JSON.parse(localStorage.getItem(PRETEND) ?? "{}") });
+export const codingTools = (): Promise<CodingTools> => (isTauri() ? invoke<CodingTools>("coding_tools") : Promise.resolve(pretend()));
 /** Writes Hose's own setup file for the tool; returns its path. */
-export const setupTool = (tool: "claude" | "codex", token: string) => invoke<string>("setup_tool", { tool, token });
+export async function setupTool(tool: "claude" | "codex", token: string): Promise<string> {
+  if (isTauri()) return invoke<string>("setup_tool", { tool, token });
+  localStorage.setItem(PRETEND, JSON.stringify({ ...pretend(), [`${tool}Setup`]: true }));
+  return tool === "claude" ? "~/.claude/hose.json" : "~/.codex/hose.config.toml";
+}

@@ -50,6 +50,7 @@ import {
   toolNames,
   relayRoutes,
   toolCommands,
+  setupLabel,
   seesImages,
   drawParams,
   type Model,
@@ -1025,5 +1026,18 @@ describe("toolCommands", () => {
     [65536, "CLAUDE_CODE_MAX_CONTEXT_TOKENS=65536 claude --settings ~/.claude/hose.json --model qwen3-coder-30b", "codex -p hose -m qwen3-coder-30b -c model_context_window=65536"],
   ])("context %s", (ctx, claude, codex) => {
     expect(toolCommands("qwen3-coder-30b", ctx)).toEqual({ claude, codex });
+  });
+});
+
+describe("setupLabel", () => {
+  const t = (claude: boolean, codex: boolean, claudeSetup = false, codexSetup = false) => ({ claude, codex, claudeSetup, codexSetup });
+  it.each([
+    [t(true, true), "Set up Claude Code and Codex"],
+    [t(true, false), "Set up Claude Code"],
+    [t(false, true), "Set up Codex"],
+    [t(true, true, true, true), "Set up again"],
+    [t(false, false), ""],
+  ])("%o", (tools, label) => {
+    expect(setupLabel(tools)).toBe(label);
   });
 });
