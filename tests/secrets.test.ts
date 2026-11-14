@@ -10,7 +10,7 @@ vi.stubGlobal("localStorage", {
 
 const { loadKeys, saveKeys } = await import("../src/secrets");
 
-const KEYS = { runpod: "r1", hf: "h1", vllm: "v1" };
+const KEYS = { runpod: "r1", hf: "h1", vllm: "v1", relay: "x1" };
 
 beforeEach(() => store.clear());
 
@@ -26,15 +26,15 @@ describe("loadKeys", () => {
   it("none", async () => {
     const keys = await loadKeys();
 
-    expect(keys).toEqual({ runpod: "", hf: "", vllm: "" });
+    expect(keys).toEqual({ runpod: "", hf: "", vllm: "", relay: "" });
     expect(store.size).toBe(0);
   });
 });
 
 describe("saveKeys", () => {
   it("local storage", async () => {
-    await saveKeys({ runpod: "r1", hf: "", vllm: "v1" });
+    await saveKeys({ runpod: "r1", hf: "", vllm: "v1", relay: "x1" });
 
-    expect(store.get("hose.keys")).toBe(JSON.stringify({ runpod: "r1", hf: "", vllm: "v1" }));
+    expect(store.get("hose.keys")).toBe(JSON.stringify({ runpod: "r1", hf: "", vllm: "v1", relay: "x1" }));
   });
 });

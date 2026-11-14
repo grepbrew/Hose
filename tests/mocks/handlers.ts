@@ -75,6 +75,10 @@ export function seed(name: string | null) {
     state.pods.push({ ...pod("pod1", "hose-qwen-image-edit-2511", "NVIDIA A100-SXM4-80GB", 2.19, 21), image: "vllm/vllm-omni:v0.30.0" });
     state.checks.pod1 = 1;
   }
+  if (name === "toolsOn") {
+    state.pods.push(pod("pod1", "hose-qwen3-coder-30b-a3b-instruct-fp8", "NVIDIA L40S", 0.86, 21));
+    state.checks.pod1 = 1;
+  }
   if (name === "seeOn") {
     state.pods.push(pod("pod1", "hose-qwen3-5-9b", "NVIDIA A40", 0.59, 21));
     state.checks.pod1 = 1;

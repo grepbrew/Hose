@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watchEffect } from "vue";
-import { getGpus, getDatacenterName, getDataCenters, podUrl } from "../api";
-import { spendTotals, snapshotOf, diskGb, fitDisk, placeName, duration, ago, usd, offText, allDay, volumePerMo, storageSpend, VLLM_IMAGE, imageOf, seesImages, type Cloud, type Config, type Pod } from "../cost";
+import { getGpus, getDatacenterName, getDataCenters, podUrl, codingTools, setupTool, type CodingTools } from "../api";
+import { spendTotals, snapshotOf, diskGb, fitDisk, placeName, duration, ago, usd, offText, allDay, volumePerMo, storageSpend, VLLM_IMAGE, imageOf, seesImages, parsersFor, toolNames, toolCommands, type Cloud, type Config, type Pod } from "../cost";
 import type { Fleet } from "../fleet";
 import Icon from "./Icon.vue";
 
@@ -82,6 +82,42 @@ const apiRows = computed(() => [
   { what: "API key", label: "API key", shown: "••••••••••••", value: props.vllmKey },
   { what: "model name", label: "Model", shown: props.config!.id, value: props.config!.id },
 ]);
+// Coding tools (Claude Code, Codex) reach this model through the app's relay under a short name. The commands never
+// change, but the context window (CLAUDE_CODE_MAX_CONTEXT_TOKENS) is the running pod's, so it shows once one is ready.
+const usesTools = computed(() => !!props.config && !props.config.draws && !!parsersFor(props.config).tools);
+const toolName = computed(() => (props.config ? (toolNames(f.s.configs)[props.config.key] ?? "") : ""));
+function setToolName(e: Event) {
+  const el = e.target as HTMLInputElement;
+  props.config!.toolName = el.value.trim() || undefined;
+  el.value = toolName.value;
+}
+const startCost = computed(() => {
+  const c = props.config!;
+  const off = c.idleMin ? `off after ${c.idleMin} min idle` : "stays on until you turn it off";
+  return c.price ? `≈${usd(c.price)}/hr, ${off}` : off;
+});
+const tools = ref<CodingTools | null>(null);
+const setupError = ref("");
+codingTools().then((t) => (tools.value = t), (e) => (setupError.value = String(e)));
+const toolRows = computed(() => {
+  const ctx = props.config?.podId ? f.s.ctx[props.config.podId] : 0;
+  const cmd = toolCommands(toolName.value, ctx || undefined);
+  const t = tools.value;
+  return [
+    { what: "claude", label: "Claude Code", on: !!t?.claude, setUp: !!t?.claudeSetup, value: cmd.claude },
+    { what: "codex", label: "Codex", on: !!t?.codex, setUp: !!t?.codexSetup, value: cmd.codex },
+  ].filter((r) => r.on);
+});
+async function setUp(tool: string) {
+  setupError.value = "";
+  try {
+    await setupTool(tool as "claude" | "codex", f.relayKey());
+    tools.value = await codingTools();
+  } catch (e) {
+    setupError.value = e instanceof Error ? e.message : String(e);
+  }
+}
+
 const copied = ref("");
 // ponytail: the webview's clipboard; tauri-plugin-clipboard-manager if WKWebView ever refuses it
 const copy = (r: { what: string; value: string }) =>
@@ -229,6 +265,29 @@ const copy = (r: { what: string; value: string }) =>
         <p v-if="seesImages(config!)" class="muted tiny">Takes images too: send them as <code>image_url</code> parts, like OpenAI's vision API.</p>
       </section>
 
+      <section v-if="!config.draws" class="sec">
+        <div class="sechead"><span class="label">Use with coding tools</span></div>
+        <template v-if="usesTools">
+          <div class="f">
+            <span class="l">Name</span>
+            <input class="inputish mono" :value="toolName" aria-label="Name for coding tools" spellcheck="false" @change="setToolName" />
+          </div>
+          <label class="check"><input v-model="config.agentStart" type="checkbox" />Coding tools can turn this on</label>
+          <p class="muted tiny">{{ startCost }}</p>
+          <div v-for="r in toolRows" :key="r.what" class="f">
+            <span class="l">{{ r.label }}</span>
+            <button v-if="!r.setUp" class="btn" type="button" @click="setUp(r.what)">Set up {{ r.label }}</button>
+            <button v-else class="inputish" type="button" :aria-label="`Copy ${r.label} command`" @click="copy(r)">
+              <span class="mono clip">{{ r.value }}</span><span class="change">{{ copied === r.what ? "Copied" : "Copy" }}</span>
+            </button>
+          </div>
+          <p v-if="tools && !toolRows.length" class="muted tiny">Install Claude Code or Codex, then open this tab again.</p>
+          <p v-if="f.s.relayError || setupError" class="error tiny">{{ f.s.relayError || setupError }}</p>
+          <p class="muted tiny">Run the command in your project folder. Hose has to stay open; closing its window keeps it running. Small models get lost in coding tools: Qwen3-Coder-30B or bigger work best.</p>
+        </template>
+        <p v-else class="muted small">This model can't use tools, so coding tools won't work with it.</p>
+      </section>
+
       <section class="sec">
         <div class="sechead"><span class="label">{{ on ? "This machine" : "Last run" }}</span></div>
         <template v-if="machine">
@@ -356,6 +415,16 @@ const copy = (r: { what: string; value: string }) =>
 }
 .small {
   font-size: 11.5px;
+}
+.check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.check input {
+  margin: 0;
 }
 .tiny {
   font-size: 11px;

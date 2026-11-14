@@ -33,7 +33,9 @@ if (import.meta.env.DEV && import.meta.env.VITE_MOCK) {
   const zi = { key: "k-z", name: "Z-Image-Turbo · A40", id: "Tongyi-MAI/Z-Image-Turbo", params: { F32: 6154908736 }, draws: true, gpuId: "NVIDIA A40", gpuName: "A40", cloud: "SECURE", idleMin: 10, price: 0.59, vram: 48, pastPodIds: [], spentPast: 0, podId: "pod1" };
   // the Qwen-Image-Edit preset on its recommended GPU, on (seed editOn)
   const qe = { key: "k-qe", name: "Qwen-Image-Edit · A100 SXM", id: "Qwen/Qwen-Image-Edit-2511", params: { BF16: 20430401088 }, draws: true, edits: true, gpuId: "NVIDIA A100-SXM4-80GB", gpuName: "A100 SXM", cloud: "SECURE", idleMin: 10, price: 2.19, vram: 80, pastPodIds: [], spentPast: 0, podId: "pod1" };
-  const models = { drawOn: [zi], editOn: [qe], off: [qwen], on: [{ ...qwen, podId: "pod1" }], two: [{ ...qwen, podId: "pod1" }, mistral], starting: [{ ...qwen, podId: "pod1" }], stored: [{ ...qwen, ...vol1 }], stuck: [{ ...qwen, podId: "pod1" }], storedOn: [{ ...qwen, ...vol1, podId: "pod1" }], presetOff: [q9], seeOn: [{ ...q9, podId: "pod1" }] }[name ?? ""];
+  // the quick start's Coding model, on (seed toolsOn): coding tools reach it through the relay
+  const coder = { key: "k-coder", name: "Qwen3-Coder-30B · L40S", id: "Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8", params: { BF16: 636948480, F8_E4M3: 29896998912 }, gpuId: "NVIDIA L40S", gpuName: "L40S", cloud: "SECURE", idleMin: 10, price: 0.86, vram: 48, pastPodIds: [], spentPast: 0, podId: "pod1" };
+  const models = { toolsOn: [coder], drawOn: [zi], editOn: [qe], off: [qwen], on: [{ ...qwen, podId: "pod1" }], two: [{ ...qwen, podId: "pod1" }, mistral], starting: [{ ...qwen, podId: "pod1" }], stored: [{ ...qwen, ...vol1 }], stuck: [{ ...qwen, podId: "pod1" }], storedOn: [{ ...qwen, ...vol1, podId: "pod1" }], presetOff: [q9], seeOn: [{ ...q9, podId: "pod1" }] }[name ?? ""];
   if (models) localStorage.setItem("hose.models", JSON.stringify(models));
   else if (name) localStorage.removeItem("hose.models");
   for (const k of ["hose.sel", "hose.details", "hose.theme"]) if (name) localStorage.removeItem(k);

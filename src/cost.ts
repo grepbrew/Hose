@@ -325,6 +325,9 @@ export function parsersOf(modelType: string, template: string, thinking: boolean
   return {};
 }
 
+/** The parsers a model runs with: its own, else (a config saved before configs carried them) its preset's. */
+export const parsersFor = (m: Model): Model => (m.tools ? m : (presetOf(m.id) ?? m));
+
 export type HfReject = "not-chat" | "not-supported" | "gated" | "no-weights" | "no-template";
 
 export function parseHfModel(info: HfInfo, hasToken: boolean): { ok: true; model: Model } | { ok: false; reason: HfReject } {
@@ -406,8 +409,7 @@ export function podInput(
   maxMin = 0,
   volumeId = "",
 ) {
-  // configs saved before they carried parsers take the preset's
-  const { tools, reasoning } = model.tools ? model : (presetOf(model.id) ?? model);
+  const { tools, reasoning } = parsersFor(model);
   const toolFlags = model.draws || !tools ? "" : ` --enable-auto-tool-choice --tool-call-parser ${tools}${reasoning ? ` --reasoning-parser ${reasoning}` : ""}`;
   return {
     name: hoseName(model.id),
@@ -561,6 +563,9 @@ export type Config = Model & {
   negative?: string;
   guidance?: number;
   size?: string; // "WxH" last picked (a Shape or Custom); unset = Square
+  // coding tools (Claude Code, Codex) through the app's relay
+  toolName?: string; // what they call it; unset = its model's label (toolNames)
+  agentStart?: boolean; // a coding tool asking for it while it's off turns it on
 };
 
 /** A new config for a model on a GPU card: Secure, off after 10 quiet minutes, the recommended storage. over = the user's choices. */
@@ -687,3 +692,39 @@ export function ago(iso: string, now: number) {
 
 /** 7.6B */
 export const billions = (params: Record<string, number>) => `${(paramCount(params) / 1e9).toFixed(1)}B`;
+
+// --- coding tools: Claude Code and Codex reach chat pods through the app's relay (src-tauri/src/relay.rs) ------------
+
+const toolSlug = (s: string) => s.toLowerCase().replace(/[^a-z0-9.]+/g, "-").replace(/^-+|-+$/g, "");
+
+/** What coding tools call each chat config that can use tools (config key → name): its own toolName, else its model's
+ * label (qwen3-coder-30b); a second config of the same model gets -2. Picture models and models without tool calling get none. */
+export function toolNames(configs: Config[]) {
+  const names: Record<string, string> = {};
+  const taken = new Set<string>();
+  for (const c of configs.filter((c) => !c.draws && parsersFor(c).tools)) {
+    const base = toolSlug(c.toolName || label(c.id));
+    let name = base;
+    for (let n = 2; taken.has(name); n++) name = `${base}-${n}`;
+    taken.add(name);
+    names[c.key] = name;
+  }
+  return names;
+}
+
+/** One row of the relay's routing table (relay.rs Route). */
+export type RelayRoute = { name: string; hfId: string; podId?: string; ready: boolean; canStart: boolean; key: string; price?: number };
+
+export function relayRoutes(configs: Config[], ready: Record<string, boolean>): RelayRoute[] {
+  const names = toolNames(configs);
+  return configs
+    .filter((c) => names[c.key])
+    .map((c) => ({ name: names[c.key], hfId: c.id, podId: c.podId, ready: !!(c.podId && ready[c.podId]), canStart: !!c.agentStart, key: c.key, price: c.price }));
+}
+
+/** The commands that start each tool on a Hose model. ctx = the pod's real context window (vLLM's max_model_len): both
+ * tools assume a big one for a model they don't know, and would only compact a long session after the pod refuses it. */
+export const toolCommands = (name: string, ctx?: number) => ({
+  claude: `${ctx ? `CLAUDE_CODE_MAX_CONTEXT_TOKENS=${ctx} ` : ""}claude --settings ~/.claude/hose.json --model ${name}`,
+  codex: `codex -p hose -m ${name}${ctx ? ` -c model_context_window=${ctx}` : ""}`,
+});

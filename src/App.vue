@@ -9,11 +9,12 @@ import NewPod from "./views/NewPod.vue";
 import PodPage from "./views/PodPage.vue";
 
 const loaded = ref(false);
-const keys = ref<Keys>({ runpod: "", hf: "", vllm: "" });
+const keys = ref<Keys>({ runpod: "", hf: "", vllm: "", relay: "" });
 const fleet = useFleet(
   () => keys.value.runpod,
   () => keys.value.vllm,
   () => keys.value.hf,
+  () => keys.value.relay,
 );
 
 // The page in the content area, remembered across launches.
@@ -49,8 +50,10 @@ async function boot() {
   try {
     k = await loadKeys();
     // One random key per Mac guards every pod's public vLLM URL; only Hose and the pod know it.
-    if (!k.vllm) {
-      k.vllm = crypto.randomUUID();
+    // Another guards the local relay coding tools use; it's in their Hose setup files, never the pod key.
+    if (!k.vllm || !k.relay) {
+      k.vllm ||= crypto.randomUUID();
+      k.relay ||= crypto.randomUUID();
       await saveKeys(k);
     }
   } catch (e) {
