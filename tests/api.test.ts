@@ -116,6 +116,34 @@ describe("drawImage", () => {
     // vLLM-Omni's 400 for a bad size (spike 2026-10-23): {"error": {"message": …}}
     await expect(drawImage("broken", "vk", "Tongyi-MAI/Z-Image-Turbo", "x", "banana")).rejects.toThrow("size must be in format 'WIDTHxHEIGHT'");
   });
+
+  // a picture to change, as Chat sends it (images.ts makes JPEG data URLs)
+  const JPEG = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQ==";
+
+  it("edit", async () => {
+    const url = await drawImage("pod1", "vk", "Qwen/Qwen-Image-Edit-2511", "poison ring", "1024x1024", { num_inference_steps: 40 }, [JPEG]);
+
+    expect(url).toMatch(/^data:image\/png;base64,iVBORw0KGgo/);
+    expect(state.lastEdit).toEqual({
+      fields: { model: "Qwen/Qwen-Image-Edit-2511", prompt: "poison ring", size: "1024x1024", n: "1", response_format: "b64_json", num_inference_steps: "40" },
+      images: ["image/jpeg"],
+    });
+    expect(state.drawAuth).toBe("Bearer vk");
+  });
+
+  it("edit refs", async () => {
+    await drawImage("pod1", "vk", "Qwen/Qwen-Image-Edit-2511", "poison ring", "1024x1024", { seed: undefined }, [JPEG, JPEG]);
+
+    expect(state.lastEdit?.images).toHaveLength(2);
+    expect(state.lastEdit?.fields).not.toHaveProperty("seed");
+  });
+
+  it("edit error", async () => {
+    // vLLM-Omni's 400 for too many pictures (spike 2026-11-14)
+    await expect(drawImage("broken", "vk", "Qwen/Qwen-Image-Edit-2511", "x", "1024x1024", {}, Array(5).fill(JPEG))).rejects.toThrow(
+      "Received 5 input images. At most 4 images are supported by this model.",
+    );
+  });
 });
 
 describe("podLogs", () => {
@@ -157,12 +185,15 @@ describe("hfSearch", () => {
   it("draws", async () => {
     const flux = await hfSearch("flux", "", { draws: true });
     const sd = await hfSearch("diffusion", "", { draws: true });
+    const edit = await hfSearch("qwen-image-edit", "", { draws: true });
 
+    // edit repos are tagged image-to-image, so only the library narrows the search; the diffusers class decides
     const q = new URL(urls.find((u) => u.includes("/api/models?"))!).searchParams;
-    expect([q.get("pipeline_tag"), q.get("library")]).toEqual(["text-to-image", "diffusers"]);
+    expect([q.get("pipeline_tag"), q.get("library")]).toEqual([null, "diffusers"]);
     // the GGUF has no diffusers class, SD 1.5's pipeline isn't one vLLM-Omni runs
     expect(flux).toEqual([{ id: "black-forest-labs/FLUX.1-schnell", params: { BF16: 11891178560 }, draws: true, downloads: 535807, gated: "auto", thinks: false }]);
     expect(sd).toEqual([]);
+    expect(edit).toEqual([{ id: "Qwen/Qwen-Image-Edit-2511", params: { BF16: 20430401088 }, draws: true, edits: true, downloads: 230414, gated: false, thinks: false }]);
   });
 });
 

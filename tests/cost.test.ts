@@ -162,6 +162,29 @@ describe("parseHfModel", () => {
 
     expect(r).toEqual({ ok: true, model: { id: "org/m", params: { BF16: 11.9e9 }, draws: true } });
   });
+
+  // live HF shape for Qwen/Qwen-Image-Edit-2511 (2026-11-14): image-to-image, QwenImageEditPlusPipeline
+  const i2i = (cls: string) =>
+    info({ pipeline_tag: "image-to-image", safetensors: { parameters: { BF16: 20430401088 } }, config: { diffusers: { _class_name: cls } } });
+
+  it("edit", () => {
+    const r = parseHfModel(i2i("QwenImageEditPlusPipeline"), true);
+
+    expect(r).toEqual({ ok: true, model: { id: "org/m", params: { BF16: 20430401088 }, draws: true, edits: true } });
+  });
+
+  it("edit unknown", () => {
+    const r = parseHfModel(i2i("StableDiffusionInstructPix2PixPipeline"), true);
+
+    expect(r).toEqual({ ok: false, reason: "not-supported" });
+  });
+
+  it("draw tagged image-to-image", () => {
+    // FLUX.2-klein is tagged image-to-image but its pipeline is a text-to-image one in vLLM-Omni
+    const r = parseHfModel(i2i("Flux2KleinPipeline"), true);
+
+    expect(r).toEqual({ ok: true, model: { id: "org/m", params: { BF16: 20430401088 }, draws: true } });
+  });
 });
 
 // needs 8e9×2×1.2/1e9 + 2 = 21.2 GB (gpuCards took that number before it took the model)
@@ -202,6 +225,19 @@ describe("tokPerSec", () => {
 });
 
 describe("gpuCards", () => {
+  it("edit preset", () => {
+    const edit = presetOf("Qwen/Qwen-Image-Edit-2511")!;
+
+    const cards = gpuCards([gpu("A40", 48, 0.59, null), gpu("A100 PCIe", 80, 1.79, null)], "SECURE", edit);
+
+    expect([edit.steps, edit.edits]).toEqual([40, true]);
+    expect(cards.map((c) => [c.name, c.tier])).toEqual([
+      ["A40", "too-small"],
+      ["A100 PCIe", "smooth"],
+    ]);
+    expect(recommend(cards)?.name).toBe("A100 PCIe");
+  });
+
   it("tiers", () => {
     const cards = gpuCards(GPUS, "SECURE", Q9);
 

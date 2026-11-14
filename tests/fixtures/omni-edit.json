@@ -1,0 +1,20 @@
+{
+ "created": 1794624177,
+ "data": [
+  {
+   "b64_json": "(a 4197148-character PNG; the mock sends its own small PNG here)",
+   "url": null,
+   "revised_prompt": null
+  }
+ ],
+ "output_format": "png",
+ "size": "1024x1024",
+ "cot_output": null,
+ "metrics": {
+  "stage_durations": {
+   "queue_wait_ms": 0.3173109143972397,
+   "stage_0_gen_ms": 32748.571157455444
+  },
+  "peak_memory_mb": 59878.0
+ }
+}

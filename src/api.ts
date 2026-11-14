@@ -189,13 +189,25 @@ export async function chatStream(id: string, apiKey: string, model: string, mess
 
 /**
  * One picture from a vLLM-Omni pod as a PNG data URL. size "1024x1024"; params: the pod's Picture settings (drawParams),
- * an unset one left out so vLLM-Omni uses its default. A request takes 10–60 s and isn't streamed.
+ * an unset one left out so vLLM-Omni uses its default. images (data URLs) = the pictures to change: an edit model's
+ * /v1/images/edits, a multipart form like OpenAI's. A request takes 10–60 s and isn't streamed.
  */
-export async function drawImage(id: string, apiKey: string, model: string, prompt: string, size: string, params: DrawParams = {}) {
-  const res = await http(`${podUrl(id)}/v1/images/generations`, {
+export async function drawImage(id: string, apiKey: string, model: string, prompt: string, size: string, params: DrawParams = {}, images: string[] = []) {
+  const fields = { model, prompt, size, n: 1, response_format: "b64_json", ...params };
+  let body: BodyInit = JSON.stringify(fields);
+  if (images.length) {
+    const form = new FormData();
+    for (const [k, v] of Object.entries(fields)) if (v !== undefined) form.append(k, String(v));
+    for (const [i, url] of images.entries()) {
+      const blob = await (await fetch(url)).blob();
+      form.append("image", blob, `image-${i + 1}.${blob.type.split("/")[1] ?? "png"}`);
+    }
+    body = form; // fetch sets the multipart Content-Type with its boundary
+  }
+  const res = await http(`${podUrl(id)}/v1/images/${images.length ? "edits" : "generations"}`, {
     method: "POST",
-    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ model, prompt, size, n: 1, response_format: "b64_json", ...params }),
+    headers: { Authorization: `Bearer ${apiKey}`, ...(images.length ? {} : { "Content-Type": "application/json" }) },
+    body,
   });
   if (!res.ok) {
     // vLLM-Omni says why in {"error": {"message"}} (bad size) or {"detail"} (server busy)
@@ -230,16 +242,16 @@ export async function hfModelInfo(id: string, token: string): Promise<HfInfo> {
   return { ...(await res.json()), id };
 }
 
-export type HfHit = { id: string; params: Record<string, number>; downloads: number; gated: boolean | string; thinks: boolean; vision?: boolean; draws?: boolean };
+export type HfHit = { id: string; params: Record<string, number>; downloads: number; gated: boolean | string; thinks: boolean; vision?: boolean; draws?: boolean; edits?: boolean };
 
 /**
- * Chat models matching q (picture models with draws), by one owner if author is set, in HF's order for sort
+ * Chat models matching q (picture models with draws: any diffusers repo, text-to-image or image-to-image), by one owner if author is set, in HF's order for sort
  * (downloads | trendingScore | createdAt, all highest first). Repos parseHfModel rejects (GGUF, base models without a
  * chat template, pictures vLLM-Omni can't run…) are dropped.
  */
 export async function hfSearch(q: string, token: string, { author = "", sort = "downloads", draws = false } = {}): Promise<HfHit[]> {
   const expand = ["pipeline_tag", "safetensors", "downloads", "gated", "config"].map((f) => `expand[]=${f}`).join("&");
-  const by = (author ? `&author=${encodeURIComponent(author)}` : "") + (draws ? "&pipeline_tag=text-to-image&library=diffusers" : "");
+  const by = (author ? `&author=${encodeURIComponent(author)}` : "") + (draws ? "&library=diffusers" : "");
   const res = await http(`${HF}/api/models?search=${encodeURIComponent(q)}${by}&sort=${sort}&limit=40&${expand}`, { headers: hfHeaders(token) });
   if (!res.ok) throw new Error(`Hugging Face error ${res.status}`);
   const all: (HfInfo & { downloads: number })[] = await res.json();

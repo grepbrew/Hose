@@ -1,0 +1,8 @@
+{
+ "error": {
+  "message": "Received 5 input images. At most 4 images are supported by this model.",
+  "type": "Bad Request",
+  "param": null,
+  "code": 400
+ }
+}
