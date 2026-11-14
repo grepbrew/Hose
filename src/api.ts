@@ -1,7 +1,7 @@
 // Every network call. Inside the app requests go through Tauri's Rust HTTP client (RunPod's
 // management API blocks browser CORS); in vite dev / tests plain fetch is used and msw answers.
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
-import { isTauri } from "@tauri-apps/api/core";
+import { isTauri, invoke } from "@tauri-apps/api/core";
 import { sseData, sseReply, replyStats, vllmLoad, logText, placeName, parseHfModel, thinks, type Cloud, type DataCenter, type DrawParams, type Gpu, type HfInfo, type Pod } from "./cost";
 
 const REST = "https://api.runpod.io/v2";
@@ -127,6 +127,16 @@ export async function podReady(id: string, apiKey: string): Promise<boolean> {
     return (await http(`${podUrl(id)}/v1/models`, { headers: { Authorization: `Bearer ${apiKey}` } })).ok;
   } catch {
     return false;
+  }
+}
+
+/** The pod's context window in tokens (vLLM /v1/models max_model_len), 0 when it can't be read. */
+export async function podContext(id: string, apiKey: string): Promise<number> {
+  try {
+    const res = await http(`${podUrl(id)}/v1/models`, { headers: { Authorization: `Bearer ${apiKey}` } });
+    return res.ok ? ((await res.json()).data?.[0]?.max_model_len ?? 0) : 0;
+  } catch {
+    return 0;
   }
 }
 
@@ -269,3 +279,11 @@ export async function hfCanDownload(id: string, token: string, draws = false): P
   const res = await http(`${HF}/${id}/resolve/main/${draws ? "model_index.json" : "config.json"}`, { method: "HEAD", headers: hfHeaders(token) });
   return res.ok;
 }
+
+/** Coding tools on this Mac (src-tauri/src/lib.rs coding_tools) and whether Hose has set them up. */
+export type CodingTools = { claude: boolean; codex: boolean; claudeSetup: boolean; codexSetup: boolean };
+// ponytail: the browser (dev:mock) has no shell to look in, so both show as set up
+export const codingTools = (): Promise<CodingTools> =>
+  isTauri() ? invoke<CodingTools>("coding_tools") : Promise.resolve({ claude: true, codex: true, claudeSetup: true, codexSetup: true });
+/** Writes Hose's own setup file for the tool; returns its path. */
+export const setupTool = (tool: "claude" | "codex", token: string) => invoke<string>("setup_tool", { tool, token });

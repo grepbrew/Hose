@@ -47,6 +47,9 @@ import {
   newConfig,
   modelOf,
   parsersOf,
+  toolNames,
+  relayRoutes,
+  toolCommands,
   seesImages,
   drawParams,
   type Model,
@@ -979,5 +982,48 @@ describe("vision", () => {
     const shown = filterModels(rows, { size: "", maxPrice: 0, maker: "", thinking: false, images: true, hideGated: false, sort: "" });
 
     expect(shown.map((r) => r.label)).toEqual(["Qwen3.5-4B", "Qwen3.5-9B", "Qwen3.8-27B", "Gemma-4-26B-A4B"]);
+  });
+});
+
+describe("toolNames", () => {
+  it("names", () => {
+    const coder = PRESETS.find((p) => p.label === "Qwen3-Coder-30B")!;
+    const configs = [
+      config({ key: "a", id: coder.id, params: coder.params }),
+      config({ key: "b", id: coder.id, params: coder.params, gpuName: "A40" }),
+      config({ key: "c", id: "Qwen/Qwen3.5-9B", toolName: "writer" }),
+      config({ key: "d", id: "Tongyi-MAI/Z-Image-Turbo", draws: true }),
+    ];
+
+    expect(toolNames(configs)).toEqual({ a: "qwen3-coder-30b", b: "qwen3-coder-30b-2", c: "writer" });
+  });
+});
+
+describe("relayRoutes", () => {
+  it("routes", () => {
+    const configs = [
+      config({ key: "a", id: "Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8", podId: "p1", price: 0.86 }),
+      config({ key: "b", id: "Qwen/Qwen3.5-9B", podId: "p2", price: 0.59 }),
+      config({ key: "c", id: "openai/gpt-oss-20b", agentStart: true, price: 0.86 }),
+      config({ key: "d", id: "Tongyi-MAI/Z-Image-Turbo", draws: true, podId: "p3" }),
+      config({ key: "e", id: "Qwen/Qwen3-8B", podId: "p4" }),
+    ];
+
+    const routes = relayRoutes(configs, { p1: true, p3: true, p4: true });
+
+    expect(routes).toEqual([
+      { name: "qwen3-coder-30b", hfId: "Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8", podId: "p1", ready: true, canStart: false, key: "a", price: 0.86 },
+      { name: "qwen3.5-9b", hfId: "Qwen/Qwen3.5-9B", podId: "p2", ready: false, canStart: false, key: "b", price: 0.59 },
+      { name: "gpt-oss-20b", hfId: "openai/gpt-oss-20b", ready: false, canStart: true, key: "c", price: 0.86 },
+    ]);
+  });
+});
+
+describe("toolCommands", () => {
+  it.each([
+    [undefined, "claude --settings ~/.claude/hose.json --model qwen3-coder-30b", "codex -p hose -m qwen3-coder-30b"],
+    [65536, "CLAUDE_CODE_MAX_CONTEXT_TOKENS=65536 claude --settings ~/.claude/hose.json --model qwen3-coder-30b", "codex -p hose -m qwen3-coder-30b -c model_context_window=65536"],
+  ])("context %s", (ctx, claude, codex) => {
+    expect(toolCommands("qwen3-coder-30b", ctx)).toEqual({ claude, codex });
   });
 });

@@ -1,8 +1,10 @@
 // The user's pod configs (remembered on this Mac) and their Pods on RunPod, polled while the app is open.
 // Shared by the Sidebar, New pod and pod pages.
 import { reactive, computed, watch, onUnmounted } from "vue";
-import { listHosePods, createPod, deletePod, createVolume, deleteVolume, resizeVolume, listHoseVolumes, podReady, podLoad, getBalance, getGpus, getDatacenterName, getDataCenters, type Message, type Pod, type Volume } from "./api";
-import { burnRatePerHr, podInput, dcIds, diskGb, volumeDc, hoseName, migrateConfigs, upsertConfig, snapshotOf, endRun, sidebarGroups, strayVolumes, bankStorage, budgetMin, type Config } from "./cost";
+import { isTauri, invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+import { listHosePods, createPod, deletePod, createVolume, deleteVolume, resizeVolume, listHoseVolumes, podReady, podContext, podLoad, getBalance, getGpus, getDatacenterName, getDataCenters, type Message, type Pod, type Volume } from "./api";
+import { burnRatePerHr, podInput, dcIds, diskGb, volumeDc, hoseName, migrateConfigs, upsertConfig, snapshotOf, endRun, sidebarGroups, strayVolumes, bankStorage, budgetMin, relayRoutes, type Config } from "./cost";
 import { listChats, loadMessages, addChat, putMessage, deleteChat as dropChat, deleteChatsOf, chatTitle, type ChatMeta } from "./history";
 import WATCHDOG from "./watchdog.py?raw";
 
@@ -18,7 +20,7 @@ const load = (): Config[] => {
   }
 };
 
-export function useFleet(key: () => string, vllmKey: () => string, hfToken: () => string) {
+export function useFleet(key: () => string, vllmKey: () => string, hfToken: () => string, relayKey: () => string = () => "") {
   const s = reactive({
     configs: load(),
     pods: [] as Pod[],
@@ -31,6 +33,8 @@ export function useFleet(key: () => string, vllmKey: () => string, hfToken: () =
     session: 0,
     error: "",
     chats: [] as ChatMeta[], // every saved chat, newest first; messages load when one is opened
+    ctx: {} as Record<string, number>, // podId -> its context window in tokens, once ready (0 = unknown)
+    relayError: "", // why coding tools can't reach the app's relay, "" when they can
   });
   // ponytail: configs in the webview's localStorage; nothing secret in them
   watch(() => s.configs, (v) => localStorage.setItem(STORE, JSON.stringify(v)), { deep: true });
@@ -118,7 +122,10 @@ export function useFleet(key: () => string, vllmKey: () => string, hfToken: () =
       s.pods
         .filter((p) => !s.ready[p.id])
         .map(async (p) => {
-          if (await podReady(p.id, vllmKey())) (s.ready[p.id] = true), (s.lastActive[p.id] ??= Date.now());
+          if (!(await podReady(p.id, vllmKey()))) return;
+          s.ready[p.id] = true;
+          s.lastActive[p.id] ??= Date.now();
+          s.ctx[p.id] = await podContext(p.id, vllmKey());
         }),
     );
     await backstop();
@@ -239,10 +246,24 @@ export function useFleet(key: () => string, vllmKey: () => string, hfToken: () =
     await refresh();
     running = false;
   };
+  // Coding tools reach chat pods through the app's relay (src-tauri/src/relay.rs): it learns where each config's pod is,
+  // and asks for a Turn on when a tool wants a config that's off and allowed to start.
+  if (isTauri()) {
+    const table = () => ({ token: relayKey(), podKey: vllmKey(), routes: relayRoutes(s.configs, s.ready) });
+    watch(table, (t) => invoke("relay_set", { table: t }).then(() => (s.relayError = ""), (e) => (s.relayError = String(e))), { deep: true, immediate: true });
+    const starting = new Set<string>(); // a tool sends several requests at once: one Turn on each
+    listen<string>("relay-start", ({ payload }) => {
+      const c = s.configs.find((x) => x.key === payload);
+      if (!c || c.podId || !c.agentStart || starting.has(c.key)) return;
+      starting.add(c.key);
+      guard(async () => void (await turnOn(c)))().finally(() => starting.delete(c.key));
+    });
+  }
+
   const timer = setInterval(loop, TICK * 1000);
   onUnmounted(() => clearInterval(timer));
 
-  return { s, chatOf, chatsOf, newChat, openChat, remember, deleteChat, groups, ratePerHr, podOf, state, offInMin, turnOn, turnOff, removeStorage, removeVolume, volumeStrays, turnOffPod, save, forget, touch, refresh, pollUse, start: loop };
+  return { s, relayKey, chatOf, chatsOf, newChat, openChat, remember, deleteChat, groups, ratePerHr, podOf, state, offInMin, turnOn, turnOff, removeStorage, removeVolume, volumeStrays, turnOffPod, save, forget, touch, refresh, pollUse, start: loop };
 }
 
 export type Fleet = ReturnType<typeof useFleet>;
