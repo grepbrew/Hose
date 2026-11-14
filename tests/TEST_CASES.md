@@ -36,7 +36,7 @@ Coding tools 2026-11-14 (TC-251–266): Claude Code and Codex reach Hose pods th
 
 Relay hookup fix 2026-11-14 (TC-267): v0.2.9's CI run failed on unhandled rejections from the relay's event listener under test; a listener that can't start now shows as the relay error.
 
-Set up from Settings 2026-11-14 (TC-268–270) changed TC-264: one "Set up" for every installed coding tool moves to Settings › Coding tools; the Pod tab keeps only the commands. Seed `toolsNew` = `toolsOn` with both tools installed but not set up (dev:mock keeps the pretend setup state in localStorage `hose.mockTools`).
+Set up from Settings 2026-11-14 (TC-268–270) changed TC-264: one "Set up" for every installed coding tool moves to Settings › Coding tools; the Pod tab keeps only the commands. Seed `toolsNew` = `toolsOn` with both tools installed but not set up (dev:mock keeps the pretend setup state in localStorage `hose.mockTools`). TC-271: the relay retries a busy port every 5 s (installed Hose next to a dev build), so it takes over when the other one quits.
 
 Retired (serverless, replaced by Pods 2026-10-22): TC-002–007, 010, 013, 014, 017, 019–022, 024–026.
 
@@ -281,3 +281,4 @@ Retired (Keychain storage, replaced by local storage 2026-10-24): TC-041–043; 
 | TC-268 | Set up both from Settings | screen | seed toolsNew | 1. open /?seed=toolsNew 2. click Settings 3. click Coding tools 4. expect Claude Code "Installed, not set up" and Codex "Installed, not set up" 5. click Set up Claude Code and Codex 6. expect both "Set up" 7. click Qwen3-Coder-30B · L40S 8. click Pod 9. expect `claude --settings ~/.claude/hose.json --model qwen3-coder-30b` and `codex -p hose -m qwen3-coder-30b` | after the click both rows say Set up and the button reads Set up again; the Pod tab shows both commands | tests/screen/TC-268.mjs | pass |
 | TC-269 | Pod tab before setup | screen | seed toolsNew | 1. open /?seed=toolsNew 2. click Qwen3-Coder-30B · L40S 3. click Pod 4. expect Set up Claude Code and Codex in Settings › Coding tools | note shown, no commands, no Set up button in the Pod tab | tests/screen/TC-269.mjs | pass |
 | TC-270 | Set up button label | unit | — | setupLabel for {claude, codex installed, none set up}; {claude only}; {codex only}; {both installed and set up}; {none installed} | "Set up Claude Code and Codex"; "Set up Claude Code"; "Set up Codex"; "Set up again"; "" | tests/cost.test.ts > setupLabel | pass |
+| TC-271 | Relay takes over a busy port | rust | another listener holds the port | run(relay, port, 50 ms); then the holder closes | status "Coding tools can't reach Hose: port N is busy…" while held; after it closes status "" and GET / answers 200 | src-tauri relay::tests::takes_over_port | pass |

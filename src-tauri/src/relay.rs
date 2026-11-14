@@ -84,6 +84,24 @@ pub fn runpod(pod: &str) -> String {
     format!("https://{pod}-8000.proxy.runpod.net")
 }
 
+/** Listens on the port for as long as the app runs. Another Hose may hold it (the installed app next to a dev build):
+ * the relay says so in `status` and tries again every `retry`, so it takes over once that one quits. */
+pub async fn run(relay: Arc<Relay>, port: u16, retry: Duration) {
+    loop {
+        let err = match tokio::net::TcpListener::bind(("127.0.0.1", port)).await {
+            Ok(listener) => {
+                relay.status.lock().unwrap().clear();
+                serve(relay.clone(), listener).await.err()
+            }
+            Err(e) => Some(e),
+        };
+        if let Some(e) = err {
+            *relay.status.lock().unwrap() = format!("Coding tools can't reach Hose: port {port} is busy on this Mac ({e}). Quit the other Hose; this one takes over.");
+        }
+        tokio::time::sleep(retry).await;
+    }
+}
+
 pub async fn serve(relay: Arc<Relay>, listener: tokio::net::TcpListener) -> std::io::Result<()> {
     // a pasted screenshot is a few MB of base64; 64 MB leaves room for several
     let app = Router::new().fallback(handle).layer(DefaultBodyLimit::max(64 << 20)).with_state(relay);
@@ -369,6 +387,24 @@ mod tests {
         assert_eq!(status, 400);
         assert_eq!(message(&body), "qwen3-coder-30b is still starting. Try again in a minute.");
         assert!(seen.lock().unwrap().path.is_empty());
+    }
+
+    #[tokio::test]
+    async fn takes_over_port() {
+        let held = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = held.local_addr().unwrap().port();
+        let relay = Arc::new(Relay::new(Box::new(|_| String::new()), Box::new(|_| {}), Box::new(|_| {})));
+        tokio::spawn(run(relay.clone(), port, Duration::from_millis(50)));
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        let busy = relay.status.lock().unwrap().clone();
+
+        drop(held);
+        tokio::time::sleep(Duration::from_millis(300)).await;
+
+        assert!(busy.starts_with(&format!("Coding tools can't reach Hose: port {port} is busy")), "{busy}");
+        assert_eq!(relay.status.lock().unwrap().as_str(), "");
+        let res = reqwest::get(format!("http://127.0.0.1:{port}/")).await.unwrap();
+        assert_eq!(res.status().as_u16(), 200);
     }
 
     #[tokio::test]
