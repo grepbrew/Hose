@@ -5,6 +5,7 @@ import { loadKeys, saveKeys, type Keys } from "./secrets";
 import { initialSelection, type Sel } from "./cost";
 import Sidebar from "./views/Sidebar.vue";
 import Setup from "./views/Setup.vue";
+import CodingTools from "./views/CodingTools.vue";
 import NewPod from "./views/NewPod.vue";
 import PodPage from "./views/PodPage.vue";
 
@@ -77,7 +78,7 @@ watch([config, stray, volume], () => {
 // Settings › Keys returns to the page it was opened from.
 let back: Sel = { kind: "new" };
 function select(s: Sel) {
-  if (s.kind === "keys" && sel.value.kind !== "keys") back = sel.value;
+  if (s.kind === "keys" && sel.value.kind !== "keys" && sel.value.kind !== "tools") back = sel.value;
   sel.value = s;
 }
 function keysSaved(k: Keys) {
@@ -97,6 +98,7 @@ function keysSaved(k: Keys) {
         <Transition name="page" mode="out-in">
           <NewPod v-if="sel.kind === 'new'" key="new" :api-key="keys.runpod" :hf-token="keys.hf" :fleet="fleet" @saved="(c) => (sel = { kind: 'config', key: c.key })" />
           <Setup v-else-if="sel.kind === 'keys'" key="keys" embedded :keys="keys" @saved="keysSaved" @cancel="sel = pick(back)" />
+          <CodingTools v-else-if="sel.kind === 'tools'" key="tools" :fleet="fleet" />
           <PodPage v-else-if="config" :key="config.key" :config="config" :fleet="fleet" :api-key="keys.runpod" :vllm-key="keys.vllm" />
           <PodPage v-else-if="stray" :key="stray.id" :stray="stray" :fleet="fleet" :api-key="keys.runpod" :vllm-key="keys.vllm" />
           <PodPage v-else-if="volume" :key="volume.id" :volume="volume" :fleet="fleet" :api-key="keys.runpod" :vllm-key="keys.vllm" />

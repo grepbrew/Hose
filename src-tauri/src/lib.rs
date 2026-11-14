@@ -150,15 +150,7 @@ pub fn run() {
                 Box::new(move |name| drop(ready.notification().builder().title("Hose").body(format!("{name} is ready")).show())),
             ));
             app.manage(relay.clone());
-            tauri::async_runtime::spawn(async move {
-                let res = match tokio::net::TcpListener::bind(("127.0.0.1", relay::PORT)).await {
-                    Ok(listener) => relay::serve(relay.clone(), listener).await,
-                    Err(e) => Err(e),
-                };
-                if let Err(e) = res {
-                    *relay.status.lock().unwrap() = format!("Coding tools can't reach Hose: port {} is busy on this Mac ({e}).", relay::PORT);
-                }
-            });
+            tauri::async_runtime::spawn(relay::run(relay, relay::PORT, std::time::Duration::from_secs(5)));
             Ok(())
         })
         // closing the window hides Hose so the relay keeps answering coding tools; ⌘Q quits

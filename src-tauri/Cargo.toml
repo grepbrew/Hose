@@ -1,6 +1,6 @@
 [package]
 name = "hose"
-version = "0.2.10"
+version = "0.2.11"
 license = "PolyForm-Noncommercial-1.0.0"
 description = "A Tauri App"
 authors = ["you"]
@@ -29,10 +29,10 @@ tauri-plugin-notification = "2"
 # the coding-tools relay (src/relay.rs): a local HTTP server, streaming to the pod with the reqwest tauri-plugin-http uses
 axum = { version = "0.8", default-features = false, features = ["http1", "tokio"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"] }
-tokio = { version = "1", features = ["net"] }
+tokio = { version = "1", features = ["net", "time"] }
 
 [dev-dependencies]
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "net"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "time"] }
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watchEffect } from "vue";
-import { getGpus, getDatacenterName, getDataCenters, podUrl, codingTools, setupTool, type CodingTools } from "../api";
+import { getGpus, getDatacenterName, getDataCenters, podUrl, codingTools, type CodingTools } from "../api";
 import { spendTotals, snapshotOf, diskGb, fitDisk, placeName, duration, ago, usd, offText, allDay, volumePerMo, storageSpend, VLLM_IMAGE, imageOf, seesImages, parsersFor, toolNames, toolCommands, type Cloud, type Config, type Pod } from "../cost";
 import type { Fleet } from "../fleet";
 import Icon from "./Icon.vue";
@@ -97,8 +97,8 @@ const startCost = computed(() => {
   return c.price ? `≈${usd(c.price)}/hr, ${off}` : off;
 });
 const tools = ref<CodingTools | null>(null);
-const setupError = ref("");
-codingTools().then((t) => (tools.value = t), (e) => (setupError.value = String(e)));
+const toolsError = ref("");
+codingTools().then((t) => (tools.value = t), (e) => (toolsError.value = String(e)));
 const toolRows = computed(() => {
   const ctx = props.config?.podId ? f.s.ctx[props.config.podId] : 0;
   const cmd = toolCommands(toolName.value, ctx || undefined);
@@ -108,15 +108,8 @@ const toolRows = computed(() => {
     { what: "codex", label: "Codex", on: !!t?.codex, setUp: !!t?.codexSetup, value: cmd.codex },
   ].filter((r) => r.on);
 });
-async function setUp(tool: string) {
-  setupError.value = "";
-  try {
-    await setupTool(tool as "claude" | "codex", f.relayKey());
-    tools.value = await codingTools();
-  } catch (e) {
-    setupError.value = e instanceof Error ? e.message : String(e);
-  }
-}
+// installed but not set up: setup is per Mac, so it lives in Settings › Coding tools
+const notSetUp = computed(() => toolRows.value.filter((r) => !r.setUp).map((r) => r.label));
 
 const copied = ref("");
 // ponytail: the webview's clipboard; tauri-plugin-clipboard-manager if WKWebView ever refuses it
@@ -274,15 +267,15 @@ const copy = (r: { what: string; value: string }) =>
           </div>
           <label class="check"><input v-model="config.agentStart" type="checkbox" />Coding tools can turn this on</label>
           <p class="muted tiny">{{ startCost }}</p>
-          <div v-for="r in toolRows" :key="r.what" class="f">
+          <div v-for="r in toolRows.filter((x) => x.setUp)" :key="r.what" class="f">
             <span class="l">{{ r.label }}</span>
-            <button v-if="!r.setUp" class="btn" type="button" @click="setUp(r.what)">Set up {{ r.label }}</button>
-            <button v-else class="inputish" type="button" :aria-label="`Copy ${r.label} command`" @click="copy(r)">
+            <button class="inputish" type="button" :aria-label="`Copy ${r.label} command`" @click="copy(r)">
               <span class="mono clip">{{ r.value }}</span><span class="change">{{ copied === r.what ? "Copied" : "Copy" }}</span>
             </button>
           </div>
+          <p v-if="notSetUp.length" class="muted tiny">Set up {{ notSetUp.join(" and ") }} in Settings › Coding tools.</p>
           <p v-if="tools && !toolRows.length" class="muted tiny">Install Claude Code or Codex, then open this tab again.</p>
-          <p v-if="f.s.relayError || setupError" class="error tiny">{{ f.s.relayError || setupError }}</p>
+          <p v-if="f.s.relayError || toolsError" class="error tiny">{{ f.s.relayError || toolsError }}</p>
           <p class="muted tiny">Run the command in your project folder. Hose has to stay open; closing its window keeps it running. Small models get lost in coding tools: Qwen3-Coder-30B or bigger work best.</p>
         </template>
         <p v-else class="muted small">This model can't use tools, so coding tools won't work with it.</p>

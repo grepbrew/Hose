@@ -205,6 +205,11 @@ function open(s: Sel) {
             <span class="two"><span class="name">Keys</span><span class="sub">RunPod key, Hugging Face token</span></span>
             <Icon name="caret-right" :size="12" class="muted" />
           </button>
+          <button class="row" role="menuitem" @click="open({ kind: 'tools' })">
+            <Icon name="code" class="muted" />
+            <span class="two"><span class="name">Coding tools</span><span class="sub">Claude Code, Codex</span></span>
+            <Icon name="caret-right" :size="12" class="muted" />
+          </button>
           <div class="appearance">
             <span class="title"><Icon name="circle-half" class="muted" />Appearance</span>
             <div class="themes" role="group" aria-label="Appearance">
@@ -223,7 +228,7 @@ function open(s: Sel) {
         </div>
         <button
           class="row"
-          :class="{ active: sel.kind === 'keys' || menu }"
+          :class="{ active: sel.kind === 'keys' || sel.kind === 'tools' || menu }"
           aria-haspopup="menu"
           :aria-expanded="menu"
           @click="menu = !menu"
