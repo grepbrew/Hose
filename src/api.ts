@@ -242,7 +242,7 @@ export async function hfModelInfo(id: string, token: string): Promise<HfInfo> {
   return { ...(await res.json()), id };
 }
 
-export type HfHit = { id: string; params: Record<string, number>; downloads: number; gated: boolean | string; thinks: boolean; vision?: boolean; draws?: boolean; edits?: boolean };
+export type HfHit = { id: string; params: Record<string, number>; downloads: number; gated: boolean | string; thinks: boolean; vision?: boolean; draws?: boolean; edits?: boolean; tools?: string; reasoning?: string };
 
 /**
  * Chat models matching q (picture models with draws: any diffusers repo, text-to-image or image-to-image), by one owner if author is set, in HF's order for sort

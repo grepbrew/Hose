@@ -45,6 +45,8 @@ import {
   thinks,
   filterModels,
   newConfig,
+  modelOf,
+  parsersOf,
   seesImages,
   drawParams,
   type Model,
@@ -185,6 +187,30 @@ describe("parseHfModel", () => {
     const r = parseHfModel(i2i("Flux2KleinPipeline"), true);
 
     expect(r).toEqual({ ok: true, model: { id: "org/m", params: { BF16: 20430401088 }, draws: true } });
+  });
+
+  it("tool parser", () => {
+    // Qwen3-Coder-30B-A3B (HF API 2026-11-14): model_type qwen3_moe, XML tool calls (<function=…>) in its template
+    const r = parseHfModel(info({ config: { model_type: "qwen3_moe", chat_template_jinja: "<tool_call>\n<function={{ name }}>" } }), true);
+
+    expect(r).toEqual({ ok: true, model: { id: "org/m", params: { BF16: 8e9 }, tools: "qwen3_coder" } });
+  });
+});
+
+describe("parsersOf", () => {
+  // vLLM v0.32.0 docs/features/tool_calling.md + reasoning_outputs.md: the parser follows the model family
+  it.each([
+    ["qwen3_5", "<function=x>", true, { tools: "qwen3_coder", reasoning: "qwen3" }],
+    ["qwen3_moe", "<function=x>", false, { tools: "qwen3_coder" }],
+    ["qwen3", '<tool_call>{"name": x}', false, { tools: "hermes" }],
+    ["qwen3", '<tool_call>{"name": x}', true, { tools: "hermes", reasoning: "qwen3" }],
+    ["gpt_oss", "", true, { tools: "openai" }],
+    ["gemma4", "", true, { tools: "gemma4", reasoning: "gemma4" }],
+    ["phi3", "", false, {}],
+    ["llama", "", false, {}],
+    ["granite", "<function=x>", true, {}],
+  ])("%s %s thinks=%s", (type, template, think, expected) => {
+    expect(parsersOf(type, template, think)).toEqual(expected);
   });
 });
 
@@ -415,6 +441,27 @@ describe("podInput", () => {
     expect(cmd).toMatch(/python3 -c "\$HOSE_WATCHDOG" & vllm serve "\$MODEL" --omni .*--api-key "\$HOSE_KEY".*; sleep infinity$/);
     expect(cmd).not.toContain("--max-model-len");
   });
+
+  it("tools", () => {
+    const q9 = PRESETS.find((p) => p.label === "Qwen3.5-9B")!;
+    const phi = PRESETS.find((p) => p.label === "Phi-4-mini")!;
+    const z = { id: "Tongyi-MAI/Z-Image-Turbo", params: { F32: 6154908736 }, draws: true };
+
+    const [q, p, d] = [q9, phi, z].map((m) => podInput(m, "NVIDIA A40", "SECURE", "", "k1", 10, "WD").entrypoint.join(" "));
+
+    expect(q).toMatch(/--enable-auto-tool-choice --tool-call-parser qwen3_coder --reasoning-parser qwen3; sleep infinity$/);
+    for (const cmd of [p, d]) expect(cmd).not.toMatch(/--enable-auto-tool-choice|--tool-call-parser|--reasoning-parser/);
+  });
+
+  it("old config tools", () => {
+    // saved before configs carried parsers: the preset's apply
+    const old = { id: "Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8", params: { BF16: 636948480, F8_E4M3: 29896998912 } };
+
+    const cmd = podInput(old, "NVIDIA L40S", "SECURE", "", "k1", 10, "WD").entrypoint.join(" ");
+
+    expect(cmd).toContain("--enable-auto-tool-choice --tool-call-parser qwen3_coder");
+    expect(cmd).not.toContain("--reasoning-parser");
+  });
 });
 
 describe("sseReply", () => {
@@ -544,6 +591,26 @@ describe("PRESETS", () => {
       ["L", "Qwen3-Coder-30B-A3B-Instruct-FP8", false],
     ]);
   });
+
+  it("parsers", () => {
+    // each repo's model_type and whether its template writes XML tool calls, from the HF API (2026-11-14)
+    const live: Record<string, [string, boolean]> = {
+      "Qwen/Qwen3.5-4B": ["qwen3_5", true],
+      "Qwen/Qwen3-4B-Instruct-2507": ["qwen3", false],
+      "microsoft/Phi-4-mini-instruct": ["phi3", false],
+      "Qwen/Qwen3.5-9B": ["qwen3_5", true],
+      "meta-llama/Llama-3.1-8B-Instruct": ["llama", false],
+      "ibm-granite/granite-4.2-8b": ["granite", true],
+      "Qwen/Qwen3.8-27B": ["qwen3_5", true],
+      "google/gemma-4-26B-A4B-it": ["gemma4", false],
+      "openai/gpt-oss-20b": ["gpt_oss", false],
+      "Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8": ["qwen3_moe", true],
+    };
+
+    const got = PRESETS.map((p) => [p.id, p.tools, p.reasoning]);
+
+    expect(got).toEqual(PRESETS.map((p) => [p.id, ...Object.values({ tools: undefined, reasoning: undefined, ...parsersOf(live[p.id][0], live[p.id][1] ? "<function=" : "", p.thinks) })]));
+  });
 });
 
 const card = (name: string, tier: GpuCard["tier"], stock: string, price: number): GpuCard => ({
@@ -652,6 +719,17 @@ describe("newConfig", () => {
     expect(c.key).toMatch(/^[0-9a-f-]{36}$/);
     expect(Object.keys(c)).not.toContain("label"); // preset display fields stay out of the saved config
     expect(custom).toMatchObject({ think: true, idleMin: 0 });
+  });
+
+  it("parsers", () => {
+    const hit = { id: "org/m", params: { BF16: 8e9 }, tools: "hermes", reasoning: "qwen3", downloads: 5, thinks: true };
+
+    const m = modelOf(hit);
+    const c = newConfig(m, card("A40", "smooth", "HIGH", 0.59));
+
+    expect(c).toMatchObject({ tools: "hermes", reasoning: "qwen3" });
+    expect(Object.keys(m)).not.toContain("downloads");
+    expect(Object.keys(m)).not.toContain("thinks");
   });
 });
 

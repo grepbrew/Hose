@@ -47,7 +47,11 @@ export function placeName(location: string, dcs: DataCenter[]) {
 
 // vision: reads images (HF image-text-to-text). draws: makes pictures (served by vLLM-Omni). edits: a picture model
 // that changes the pictures it's given (an EDIT_PIPES pipeline, /v1/images/edits)
-export type Model = { id: string; params: Record<string, number>; vision?: boolean; draws?: boolean; edits?: boolean };
+// tools / reasoning: vLLM's --tool-call-parser / --reasoning-parser for the model's family (parsersOf)
+export type Model = { id: string; params: Record<string, number>; vision?: boolean; draws?: boolean; edits?: boolean; tools?: string; reasoning?: string };
+
+/** Just the Model fields of a preset, search hit or config: what a saved config keeps about its model. */
+export const modelOf = ({ id, params, vision, draws, edits, tools, reasoning }: Model): Model => ({ id, params, vision, draws, edits, tools, reasoning });
 
 export type Preset = Model & { label: string; blurb: string; tag: string; thinks: boolean; gated?: boolean; active?: number; steps?: number };
 
@@ -55,17 +59,18 @@ export type Preset = Model & { label: string; blurb: string; tag: string; thinks
 // vLLM v0.32.0 registers every architecture here. thinks = thinks() on each repo's chat template (2026-10-23).
 // active = parameters each token reads, for a mixture-of-experts repo whose name doesn't say it (activeGb).
 // vision = HF tags it image-text-to-text (2026-10-23): it reads photos, screenshots and PDF pages too.
+// tools/reasoning = parsersOf on each repo's live model_type and template (2026-11-14).
 export const PRESETS: Preset[] = [
-  { label: "Qwen3.5-4B", blurb: "Quick everyday answers", tag: "Qwen · new", thinks: true, vision: true, id: "Qwen/Qwen3.5-4B", params: { BF16: 4659861248, F32: 3840 } },
-  { label: "Qwen3-4B-Instruct", blurb: "Fast, text only", tag: "Qwen", thinks: false, id: "Qwen/Qwen3-4B-Instruct-2507", params: { BF16: 4022468096 } },
+  { label: "Qwen3.5-4B", blurb: "Quick everyday answers", tag: "Qwen · new", thinks: true, vision: true, tools: "qwen3_coder", reasoning: "qwen3", id: "Qwen/Qwen3.5-4B", params: { BF16: 4659861248, F32: 3840 } },
+  { label: "Qwen3-4B-Instruct", blurb: "Fast, text only", tag: "Qwen", thinks: false, tools: "hermes", id: "Qwen/Qwen3-4B-Instruct-2507", params: { BF16: 4022468096 } },
   { label: "Phi-4-mini", blurb: "Small, good at reasoning", tag: "Microsoft", thinks: false, id: "microsoft/Phi-4-mini-instruct", params: { BF16: 3836021760 } },
-  { label: "Qwen3.5-9B", blurb: "Good all-rounder for writing and reasoning", tag: "Qwen · new", thinks: true, vision: true, id: "Qwen/Qwen3.5-9B", params: { BF16: 9653100528, F32: 3840 } },
+  { label: "Qwen3.5-9B", blurb: "Good all-rounder for writing and reasoning", tag: "Qwen · new", thinks: true, vision: true, tools: "qwen3_coder", reasoning: "qwen3", id: "Qwen/Qwen3.5-9B", params: { BF16: 9653100528, F32: 3840 } },
   { label: "Llama-3.1-8B", blurb: "Meta's popular 8B", tag: "Meta", thinks: false, id: "meta-llama/Llama-3.1-8B-Instruct", params: { BF16: 8030261248 }, gated: true },
   { label: "Granite-4.2-8B", blurb: "Clear, businesslike writing", tag: "IBM · new", thinks: true, id: "ibm-granite/granite-4.2-8b", params: { BF16: 8791592960 } },
-  { label: "Qwen3.8-27B", blurb: "Strongest that fits one GPU", tag: "Qwen · new", thinks: true, vision: true, id: "Qwen/Qwen3.8-27B", params: { BF16: 27781427952 } },
-  { label: "Gemma-4-26B-A4B", blurb: "Fast for its size", tag: "Google · new", thinks: true, vision: true, id: "google/gemma-4-26B-A4B-it", params: { BF16: 25805936206 } },
-  { label: "gpt-oss-20b", blurb: "OpenAI's open model", tag: "OpenAI", thinks: true, active: 3.6e9, id: "openai/gpt-oss-20b", params: { BF16: 1804459584, U8: 19110297600 } },
-  { label: "Qwen3-Coder-30B", blurb: "Writes and fixes code", tag: "Qwen", thinks: false, id: "Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8", params: { BF16: 636948480, F8_E4M3: 29896998912 } },
+  { label: "Qwen3.8-27B", blurb: "Strongest that fits one GPU", tag: "Qwen · new", thinks: true, vision: true, tools: "qwen3_coder", reasoning: "qwen3", id: "Qwen/Qwen3.8-27B", params: { BF16: 27781427952 } },
+  { label: "Gemma-4-26B-A4B", blurb: "Fast for its size", tag: "Google · new", thinks: true, vision: true, tools: "gemma4", reasoning: "gemma4", id: "google/gemma-4-26B-A4B-it", params: { BF16: 25805936206 } },
+  { label: "gpt-oss-20b", blurb: "OpenAI's open model", tag: "OpenAI", thinks: true, active: 3.6e9, tools: "openai", id: "openai/gpt-oss-20b", params: { BF16: 1804459584, U8: 19110297600 } },
+  { label: "Qwen3-Coder-30B", blurb: "Writes and fixes code", tag: "Qwen", thinks: false, tools: "qwen3_coder", id: "Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8", params: { BF16: 636948480, F8_E4M3: 29896998912 } },
 ];
 
 // Picture models (2026-10-23), all served by vLLM-Omni v0.30.0. params = the transformer's (HF safetensors), steps = what
@@ -256,7 +261,7 @@ export type HfInfo = {
   pipeline_tag?: string;
   gated?: boolean | string;
   safetensors?: { parameters: Record<string, number> };
-  config?: { tokenizer_config?: { chat_template?: unknown }; chat_template_jinja?: string; diffusers?: { _class_name?: string } };
+  config?: { model_type?: string; tokenizer_config?: { chat_template?: unknown }; chat_template_jinja?: string; diffusers?: { _class_name?: string } };
 };
 
 /** HF pipeline tags Hose can chat with. image-text-to-text models (Qwen3.5, Gemma 4) take text, images or both. */
@@ -305,6 +310,21 @@ export function filterModels<R extends Model & { gated?: unknown; thinks?: boole
   return rows.filter(ok).sort((a, b) => (f.sort === "cheap" && price(a) !== price(b) ? price(a) - price(b) : 0));
 }
 
+/**
+ * vLLM's tool-call and reasoning parsers for a model family (HF config model_type), from vLLM v0.32.0
+ * docs/features/tool_calling.md + reasoning_outputs.md. Qwen writes tool calls as XML (<function=…>, Qwen3-Coder and
+ * Qwen3.5 on) or as Hermes JSON; the template says which. A reasoning parser only for models that think: on a model that
+ * never thinks it could take the whole answer for reasoning. gpt-oss splits its reasoning out by itself.
+ * ponytail: the families coding tools use; Llama needs a custom chat template file, Phi/Granite untested: add when asked
+ */
+export function parsersOf(modelType: string, template: string, thinking: boolean): { tools?: string; reasoning?: string } {
+  if (modelType === "gpt_oss") return { tools: "openai" };
+  const reason = (name: string) => (thinking ? { reasoning: name } : {});
+  if (modelType === "gemma4") return { tools: "gemma4", ...reason("gemma4") };
+  if (["qwen3", "qwen3_moe", "qwen3_5"].includes(modelType)) return { tools: template.includes("<function=") ? "qwen3_coder" : "hermes", ...reason("qwen3") };
+  return {};
+}
+
 export type HfReject = "not-chat" | "not-supported" | "gated" | "no-weights" | "no-template";
 
 export function parseHfModel(info: HfInfo, hasToken: boolean): { ok: true; model: Model } | { ok: false; reason: HfReject } {
@@ -320,7 +340,9 @@ export function parseHfModel(info: HfInfo, hasToken: boolean): { ok: true; model
   // base models carry no chat template; vLLM's /v1/chat/completions refuses them
   if (!info.config?.tokenizer_config?.chat_template && !info.config?.chat_template_jinja) return { ok: false, reason: "no-template" };
   const vision = info.pipeline_tag === "image-text-to-text";
-  return { ok: true, model: { id: info.id, params: info.safetensors.parameters, ...(vision ? { vision } : {}) } };
+  const template = JSON.stringify([info.config.tokenizer_config?.chat_template, info.config.chat_template_jinja]);
+  const parsers = parsersOf(info.config.model_type ?? "", template, thinks(info));
+  return { ok: true, model: { id: info.id, params: info.safetensors.parameters, ...(vision ? { vision } : {}), ...parsers } };
 }
 
 // CUDA 13.0 build. The -cu129 tag crash-loops: its torchcodec wants libnvrtc.so.13 (spike 2026-10-22).
@@ -384,6 +406,9 @@ export function podInput(
   maxMin = 0,
   volumeId = "",
 ) {
+  // configs saved before they carried parsers take the preset's
+  const { tools, reasoning } = model.tools ? model : (presetOf(model.id) ?? model);
+  const toolFlags = model.draws || !tools ? "" : ` --enable-auto-tool-choice --tool-call-parser ${tools}${reasoning ? ` --reasoning-parser ${reasoning}` : ""}`;
   return {
     name: hoseName(model.id),
     image: imageOf(model),
@@ -408,7 +433,7 @@ export function podInput(
       "-c",
       // no exec: if vLLM dies the container stays up and this watchdog deletes the pod. A container restart would
       // start a fresh watchdog with a fresh boot timer, so a crash loop could bill forever.
-      `python3 -c "$HOSE_WATCHDOG" & vllm serve "$MODEL" ${model.draws ? "--omni " : ""}--port 8000 --api-key "$HOSE_KEY"${model.draws ? "" : " --max-model-len auto"}; sleep infinity`,
+      `python3 -c "$HOSE_WATCHDOG" & vllm serve "$MODEL" ${model.draws ? "--omni " : ""}--port 8000 --api-key "$HOSE_KEY"${model.draws ? "" : " --max-model-len auto"}${toolFlags}; sleep infinity`,
     ],
   };
 }
@@ -542,11 +567,7 @@ export type Config = Model & {
 export const newConfig = (m: Model, g: GpuCard, over: Partial<Config> = {}): Config => ({
   key: crypto.randomUUID(),
   name: `${label(m.id)} · ${g.name}`,
-  id: m.id,
-  params: m.params,
-  vision: m.vision,
-  draws: m.draws,
-  edits: m.edits,
+  ...modelOf(m),
   gpuId: g.id,
   gpuName: g.name,
   cloud: "SECURE",
