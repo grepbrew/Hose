@@ -35,6 +35,7 @@ import {
   allDay,
   PRESETS,
   presetOf,
+  sizeOf,
   QUICK,
   VLLM_IMAGE,
   smoothGb,
@@ -190,6 +191,17 @@ describe("parseHfModel", () => {
 // needs 8e9×2×1.2/1e9 + 2 = 21.2 GB (gpuCards took that number before it took the model)
 const M8 = { id: "x/y", params: { BF16: 8e9 } };
 const Q9 = PRESETS.find((p) => p.label === "Qwen3.5-9B")!;
+
+describe("sizeOf", () => {
+  it.each([
+    [1024, 1152, "1024x1152"],
+    [1000, 1150, "1008x1152"], // nearest multiple of 16: what vLLM-Omni makes, shown before sending
+    [100, 5000, "256x2048"],
+    [undefined, 768, "1024x768"], // a blank box = 1024
+  ])("sizeOf(%s, %s) = %s", (w, h, size) => {
+    expect(sizeOf(w, h)).toBe(size);
+  });
+});
 
 describe("smoothGb", () => {
   it("bf16 8B", () => {

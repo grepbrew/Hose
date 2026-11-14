@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, nextTick, onMounted, watch } from "vue";
 import { chatStream, drawImage, podLogs, type LogLine, type Message } from "../api";
-import { label, stuckBoot, seesImages, stepsOf, drawParams, type Config } from "../cost";
+import { label, stuckBoot, seesImages, stepsOf, drawParams, sizeOf, type Config } from "../cost";
 import type { Fleet } from "../fleet";
 import { md } from "../markdown";
 import { toImages, MAX_IMAGES, saveImage, showInFinder } from "../images";
@@ -119,7 +119,20 @@ const SHAPES = [
   ["768x1344", "Portrait"],
   ["1344x768", "Landscape"],
 ] as const;
-const shape = ref<string>(SHAPES[0][0]);
+// the size picked, saved with the pod like its Picture settings
+const shape = computed({ get: () => props.config.size ?? SHAPES[0][0], set: (v: string) => (props.config.size = v) });
+// Custom: any size typed in Width × Height, pressed even when it matches a Shape
+const customOn = ref(false);
+watch(() => props.config.key, () => (customOn.value = false));
+const custom = computed(() => customOn.value || !SHAPES.some(([size]) => size === shape.value));
+function setSide(i: number, e: Event) {
+  const el = e.target as HTMLInputElement;
+  const [w, h] = shape.value.split("x").map(Number);
+  shape.value = i ? sizeOf(w, el.valueAsNumber) : sizeOf(el.valueAsNumber, h);
+  el.value = shape.value.split("x")[i]; // show the rounded side even when the size didn't change
+}
+// Enter in a size box sets it (change on blur) instead of sending the message
+const commit = (e: KeyboardEvent) => (e.target as HTMLElement).blur();
 // Picture settings popover: steps, seed, avoid, guidance on the config (saved with it); blank = the model's default
 const tuning = ref(false);
 const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -273,8 +286,23 @@ const onEnter = (e: KeyboardEvent) => {
           </template>
           <template v-if="draws">
             <div class="seg shapes" role="group" aria-label="Shape">
-              <button v-for="[size, name] in SHAPES" :key="size" type="button" :title="size.replace('x', ' × ')" :aria-pressed="shape === size" @click="shape = size">{{ name }}</button>
+              <button
+                v-for="[size, name] in SHAPES"
+                :key="size"
+                type="button"
+                :title="size.replace('x', ' × ')"
+                :aria-pressed="!custom && shape === size"
+                @click="(customOn = false), (shape = size)"
+              >
+                {{ name }}
+              </button>
+              <button type="button" title="Any size, rounded to a multiple of 16 (256 to 2048)" :aria-pressed="custom" @click="customOn = true">Custom</button>
             </div>
+            <span v-if="custom" class="dims">
+              <input aria-label="Width" type="number" min="256" max="2048" step="16" :value="shape.split('x')[0]" @change="setSide(0, $event)" @keydown.enter.prevent="commit" />
+              ×
+              <input aria-label="Height" type="number" min="256" max="2048" step="16" :value="shape.split('x')[1]" @change="setSide(1, $event)" @keydown.enter.prevent="commit" />
+            </span>
             <div v-if="tuning" class="scrim" @click="tuning = false" />
             <div v-if="tuning" class="tune popin" role="dialog" aria-label="Picture settings" @keydown.esc="tuning = false">
               <span class="label">Picture settings</span>
@@ -581,6 +609,27 @@ textarea:disabled {
 .shapes button {
   font-size: 10.5px;
   padding: 2px 9px;
+}
+.dims {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.dims input {
+  width: 58px;
+  height: 22px;
+  padding: 0 6px;
+  font: inherit;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+}
+.dims input:focus {
+  outline: none;
+  border-color: var(--accent);
 }
 .shots img {
   display: block;
