@@ -45,8 +45,9 @@ export function placeName(location: string, dcs: DataCenter[]) {
   return country ? `${country} (${location})` : location;
 }
 
-// vision: reads images (HF image-text-to-text). draws: makes pictures from text (HF text-to-image, served by vLLM-Omni)
-export type Model = { id: string; params: Record<string, number>; vision?: boolean; draws?: boolean };
+// vision: reads images (HF image-text-to-text). draws: makes pictures (served by vLLM-Omni). edits: a picture model
+// that changes the pictures it's given (an EDIT_PIPES pipeline, /v1/images/edits)
+export type Model = { id: string; params: Record<string, number>; vision?: boolean; draws?: boolean; edits?: boolean };
 
 export type Preset = Model & { label: string; blurb: string; tag: string; thinks: boolean; gated?: boolean; active?: number; steps?: number };
 
@@ -73,6 +74,8 @@ export const PICTURES: Preset[] = [
   { label: "Z-Image-Turbo", blurb: "Fast, photo-like pictures", tag: "Alibaba · new", thinks: false, draws: true, steps: 9, id: "Tongyi-MAI/Z-Image-Turbo", params: { F32: 6154908736 } },
   { label: "FLUX.1-schnell", blurb: "Quick, any style", tag: "Black Forest Labs", thinks: false, draws: true, steps: 4, id: "black-forest-labs/FLUX.1-schnell", params: { BF16: 11891178560 }, gated: true },
   { label: "Qwen-Image", blurb: "Best with words in the picture", tag: "Qwen", thinks: false, draws: true, id: "Qwen/Qwen-Image", params: { BF16: 20430401088 } },
+  // 2026-11-14: Apache-2.0; 40 steps per its card (vLLM-Omni's default is 50)
+  { label: "Qwen-Image-Edit", blurb: "Changes a picture you give it", tag: "Qwen · new", thinks: false, draws: true, edits: true, steps: 40, id: "Qwen/Qwen-Image-Edit-2511", params: { BF16: 20430401088 } },
 ];
 
 /** A curated chat or picture model. */
@@ -260,6 +263,13 @@ export const T2I_PIPES = [
   "ErnieImagePipeline", "Krea2Pipeline", "HunyuanImage3Pipeline",
 ];
 
+/**
+ * Pipelines vLLM-Omni v0.30.0 serves as picture edits (same registry): a reference picture in, a new one out at
+ * /v1/images/edits. ponytail: a pipeline that does both (Flux2Klein) stays text-to-image in Hose; other apps can still
+ * call /v1/images/edits on its pod.
+ */
+export const EDIT_PIPES = ["QwenImageEditPipeline", "QwenImageEditPlusPipeline", "LongCatImageEditPipeline", "FluxKontextPipeline"];
+
 /** The chat template has a thinking switch: enable_thinking (Qwen3, Granite, Gemma 4), <think> (DeepSeek-R1), reasoning_effort (gpt-oss). */
 export const thinks = (info: HfInfo) =>
   /enable_thinking|<think>|reasoning_effort/.test(JSON.stringify([info.config?.tokenizer_config?.chat_template, info.config?.chat_template_jinja]));
@@ -289,12 +299,15 @@ export function filterModels<R extends Model & { gated?: unknown; thinks?: boole
 export type HfReject = "not-chat" | "not-supported" | "gated" | "no-weights" | "no-template";
 
 export function parseHfModel(info: HfInfo, hasToken: boolean): { ok: true; model: Model } | { ok: false; reason: HfReject } {
-  const draws = info.pipeline_tag === "text-to-image";
-  if (draws && !T2I_PIPES.includes(info.config?.diffusers?._class_name ?? "")) return { ok: false, reason: "not-supported" };
+  // edit repos are tagged image-to-image; the diffusers class says what vLLM-Omni does with it
+  const draws = info.pipeline_tag === "text-to-image" || info.pipeline_tag === "image-to-image";
+  const pipe = info.config?.diffusers?._class_name ?? "";
+  const edits = EDIT_PIPES.includes(pipe);
+  if (draws && !edits && !T2I_PIPES.includes(pipe)) return { ok: false, reason: "not-supported" };
   if (!draws && !CHAT_TAGS.includes(info.pipeline_tag ?? "")) return { ok: false, reason: "not-chat" };
   if (info.gated && !hasToken) return { ok: false, reason: "gated" };
   if (!info.safetensors) return { ok: false, reason: "no-weights" };
-  if (draws) return { ok: true, model: { id: info.id, params: info.safetensors.parameters, draws } };
+  if (draws) return { ok: true, model: { id: info.id, params: info.safetensors.parameters, draws, ...(edits ? { edits } : {}) } };
   // base models carry no chat template; vLLM's /v1/chat/completions refuses them
   if (!info.config?.tokenizer_config?.chat_template && !info.config?.chat_template_jinja) return { ok: false, reason: "no-template" };
   const vision = info.pipeline_tag === "image-text-to-text";
@@ -523,6 +536,7 @@ export const newConfig = (m: Model, g: GpuCard, over: Partial<Config> = {}): Con
   params: m.params,
   vision: m.vision,
   draws: m.draws,
+  edits: m.edits,
   gpuId: g.id,
   gpuName: g.name,
   cloud: "SECURE",

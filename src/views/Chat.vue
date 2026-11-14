@@ -74,7 +74,7 @@ async function attach(files: File[]) {
   files = files.filter((f) => f.type.startsWith("image/") || f.type === "application/pdf");
   if (!files.length) return;
   error.value = note.value = "";
-  if (!vision.value) return void (error.value = `${label(props.config.id)} can't read images. Pick a model marked “reads images” in New pod.`);
+  if (!vision.value && !edits.value) return void (error.value = `${label(props.config.id)} can't read images. Pick a model marked “reads images” in New pod.`);
   attaching.value = true;
   let more = false;
   try {
@@ -111,6 +111,8 @@ const onDrop = (e: DragEvent) => void attach([...(e.dataTransfer?.files ?? [])])
 
 // A picture model: each message is a prompt on its own, the reply is a picture saved to ~/Pictures/Hose.
 const draws = computed(() => !!props.config.draws);
+// An edit model changes pictures: the attached ones, else the last one it made here, so edits chain
+const edits = computed(() => !!props.config.edits);
 // sizes vLLM-Omni takes as WxH; multiples of 64, about a megapixel each
 const SHAPES = [
   ["1024x1024", "Square"],
@@ -122,9 +124,9 @@ const shape = ref<string>(SHAPES[0][0]);
 const tuning = ref(false);
 const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
-async function draw(podId: string, prompt: string, reply: Message) {
+async function draw(podId: string, prompt: string, reply: Message, refs: string[]) {
   const start = performance.now();
-  const url = await drawImage(podId, props.vllmKey, props.config.id, prompt, shape.value, drawParams(props.config));
+  const url = await drawImage(podId, props.vllmKey, props.config.id, prompt, shape.value, drawParams(props.config), refs);
   Object.assign(reply, { images: [url], stats: `${((performance.now() - start) / 1000).toFixed(1)} s` });
   scroll();
   // ponytail: a failed save leaves the picture in the chat only (right-click → Copy Image still works); the alert says why
@@ -132,10 +134,12 @@ async function draw(podId: string, prompt: string, reply: Message) {
 }
 
 async function send() {
-  const text = draft.value.trim() || (pending.value.length ? READ : "");
+  const text = draft.value.trim() || (pending.value.length && !draws.value ? READ : "");
   const podId = props.config.podId;
   if (!text || busy.value || attaching.value || !podId || state.value !== "On") return;
   const msgs = messages.value;
+  const refs = !edits.value ? [] : pending.value.length ? [...pending.value] : ([...msgs].reverse().find((m) => m.role === "assistant" && m.images)?.images ?? []);
+  if (edits.value && !refs.length) return void (error.value = "Attach the picture to change first.");
   draft.value = "";
   error.value = note.value = "";
   busy.value = true;
@@ -147,7 +151,7 @@ async function send() {
   const reply = msgs[msgs.length - 1];
   scroll();
   try {
-    if (draws.value) await draw(podId, text, reply);
+    if (draws.value) await draw(podId, text, reply, refs);
     else
       await chatStream(podId, props.vllmKey, props.config.id, history, !!props.config.think, (r) => {
         Object.assign(reply, r);
@@ -195,7 +199,8 @@ const onEnter = (e: KeyboardEvent) => {
     </ol>
     <TransitionGroup v-else ref="list" tag="ol" name="msg" class="messages" aria-live="polite">
       <li v-if="!messages.length" key="hello" class="empty muted">
-        <template v-if="draws">Describe a picture for {{ label(config.id) }}. Each one is saved to your Pictures folder.</template>
+        <template v-if="edits">Attach a picture and describe the change for {{ label(config.id) }}. Each new one is saved to your Pictures folder.</template>
+        <template v-else-if="draws">Describe a picture for {{ label(config.id) }}. Each one is saved to your Pictures folder.</template>
         <template v-else>Say hello to {{ label(config.id) }}{{ vision ? ", or drop in a photo or PDF to read its text" : "" }}.</template>
       </li>
       <li v-for="(m, i) in messages" :key="i" :class="m.role" @click="copy">
@@ -236,11 +241,13 @@ const onEnter = (e: KeyboardEvent) => {
         </ul>
         <textarea
           v-model="draft"
-          :aria-label="draws ? 'Describe a picture' : 'Message'"
+          :aria-label="edits ? 'Describe the change' : draws ? 'Describe a picture' : 'Message'"
           :placeholder="
             state === 'Starting'
               ? 'Chat opens when the model is ready…'
-              : draws
+              : edits
+                ? 'Describe the change…'
+                : draws
                 ? 'Describe a picture…'
                 : pending.length
                   ? 'Ask about it, or Send to read out its text…'
@@ -252,8 +259,14 @@ const onEnter = (e: KeyboardEvent) => {
           @paste="onPaste"
         />
         <div class="opts">
-          <template v-if="vision">
-            <button class="opt attach" type="button" aria-label="Attach image or PDF" title="A photo, screenshot or PDF. You can also paste or drop one." @click="fileEl?.click()">
+          <template v-if="vision || edits">
+            <button
+              class="opt attach"
+              type="button"
+              :aria-label="edits ? 'Attach picture' : 'Attach image or PDF'"
+              :title="edits ? 'The picture to change. You can also paste or drop one; with none, the last picture here is changed.' : 'A photo, screenshot or PDF. You can also paste or drop one.'"
+              @click="fileEl?.click()"
+            >
               <Icon name="paperclip" :size="13" />Attach
             </button>
             <input ref="fileEl" type="file" accept="image/*,application/pdf" multiple hidden @change="picked" />

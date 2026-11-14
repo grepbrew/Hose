@@ -63,6 +63,12 @@ class Load(unittest.TestCase):
 
         self.assertEqual(busy_done, (0, 1))
 
+    def test_metrics_omni_edit(self):
+        # real /metrics of a Qwen-Image-Edit-2511 pod after 8 edits at /v1/images/edits (spike 2026-11-14)
+        busy_done = load((FIXTURES / "omni-edit-metrics.txt").read_text())
+
+        self.assertEqual(busy_done, (0, 8))
+
 
 if __name__ == "__main__":
     unittest.main()

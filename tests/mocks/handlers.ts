@@ -1,6 +1,8 @@
 // Fake RunPod + Hugging Face. Shared by vitest (msw/node) and the screen tests (vite dev with VITE_MOCK=1).
 // Response shapes follow the examples in api.runpod.io/v2/openapi.json and the 2026-10-22 pod spike.
 import { http, HttpResponse } from "msw/http";
+import EDIT from "../fixtures/omni-edit.json";
+import EDIT_ERROR from "../fixtures/omni-edit-error.json";
 
 const REST = "https://api.runpod.io/v2";
 
@@ -18,6 +20,7 @@ export const state = {
   lastChat: null as Record<string, any> | null, // last POST /v1/chat/completions body
   lastDraw: null as Record<string, any> | null, // last POST /v1/images/generations body
   drawAuth: "", // its Authorization header
+  lastEdit: null as { fields: Record<string, string>; images: string[] } | null, // last POST /v1/images/edits: form fields, image types
   served: 0, // vLLM's finished-request count in /metrics
   soldOut: false, // every GPU's stock NONE (seed soldOut)
 };
@@ -54,6 +57,7 @@ export function seed(name: string | null) {
   state.lastChat = null;
   state.lastDraw = null;
   state.drawAuth = "";
+  state.lastEdit = null;
   state.served = 0;
   state.soldOut = name === "soldOut";
   if (name === "presetOff" || name === "seeOn") state.volumes.push({ id: "vol1", name: "hose-qwen3-5-9b", size: 30, dataCenter: "US-TX-3", type: "STANDARD" });
@@ -65,6 +69,10 @@ export function seed(name: string | null) {
   }
   if (name === "drawOn") {
     state.pods.push({ ...pod("pod1", "hose-z-image-turbo", "NVIDIA A40", 0.59, 21), image: "vllm/vllm-omni:v0.30.0" });
+    state.checks.pod1 = 1;
+  }
+  if (name === "editOn") {
+    state.pods.push({ ...pod("pod1", "hose-qwen-image-edit-2511", "NVIDIA A100-SXM4-80GB", 2.19, 21), image: "vllm/vllm-omni:v0.30.0" });
     state.checks.pod1 = 1;
   }
   if (name === "seeOn") {
@@ -109,6 +117,8 @@ const HF_MODELS = [
   hfModel("black-forest-labs/FLUX.1-schnell", "text-to-image", 535807, 11891178560, "auto", { diffusers: { _class_name: "FluxPipeline" } }),
   hfModel("stable-diffusion-v1-5/stable-diffusion-v1-5", "text-to-image", 1141927, 859520964, false, { diffusers: { _class_name: "StableDiffusionPipeline" } }),
   hfModel("city96/FLUX.1-schnell-gguf", "text-to-image", 134483, null, false, {}),
+  // live 2026-11-14: edit repos are tagged image-to-image
+  hfModel("Qwen/Qwen-Image-Edit-2511", "image-to-image", 230414, 20430401088, false, { diffusers: { _class_name: "QwenImageEditPlusPipeline" } }),
   { ...hfModel("Tongyi-MAI/Z-Image-Turbo", "text-to-image", 654742, null, false, { diffusers: { _class_name: "ZImagePipeline" } }), safetensors: { parameters: { F32: 6154908736 }, total: 6154908736 } },
   hfModel("Qwen/Qwen3-8B", "text-generation", 9100000, 8190735360, false, THINK_CONFIG),
   hfModel("Qwen/Qwen3-Embedding-0.6B", "feature-extraction", 5200000, 595776512),
@@ -310,6 +320,20 @@ export const handlers = [
       );
     state.served++;
     return HttpResponse.json({ created: 1792743053, data: [{ b64_json: PNG, url: null, revised_prompt: null }], output_format: "png", size: state.lastDraw.size });
+  }),
+  // vLLM-Omni's edit route takes a multipart form; bodies are the real spike responses (2026-11-14), the PNG swapped
+  // for the small mock one. Pod "broken" answers its 400 for too many pictures.
+  http.post("https://*.proxy.runpod.net/v1/images/edits", async ({ request }) => {
+    const form = await request.formData();
+    const fields: Record<string, string> = {};
+    const images: string[] = [];
+    for (const [k, v] of form) if (k === "image" && typeof v !== "string") images.push(v.type);
+    else if (typeof v === "string") fields[k] = v;
+    state.lastEdit = { fields, images };
+    state.drawAuth = request.headers.get("Authorization") ?? "";
+    if (podId(request) === "broken") return HttpResponse.json(EDIT_ERROR, { status: 400 });
+    state.served++;
+    return HttpResponse.json({ ...EDIT, data: [{ ...EDIT.data[0], b64_json: PNG }], size: fields.size ?? EDIT.size });
   }),
   http.get("https://*.proxy.runpod.net/metrics", () => HttpResponse.text(metrics(state.served))),
   http.get("https://huggingface.co/api/whoami-v2", () => HttpResponse.json({ name: "tester" })),

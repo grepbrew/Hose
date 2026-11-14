@@ -222,7 +222,10 @@ const copy = (r: { what: string; value: string }) =>
           </button>
         </div>
         <p class="muted tiny">Works with any OpenAI-compatible app. The address changes each time you turn it on. Anyone with the key can use the model while it's on, and their requests keep it on.</p>
-        <p v-if="config!.draws" class="muted tiny">Makes pictures at <code>/v1/images/generations</code>, like OpenAI's images API (<code>response_format: b64_json</code>).</p>
+        <p v-if="config!.edits" class="muted tiny">
+          Changes pictures at <code>/v1/images/edits</code>, like OpenAI's images API: a form with <code>image</code> (up to 4), <code>prompt</code> and <code>size</code>; <code>b64_json</code> back.
+        </p>
+        <p v-else-if="config!.draws" class="muted tiny">Makes pictures at <code>/v1/images/generations</code>, like OpenAI's images API (<code>response_format: b64_json</code>).</p>
         <p v-if="seesImages(config!)" class="muted tiny">Takes images too: send them as <code>image_url</code> parts, like OpenAI's vision API.</p>
       </section>
 

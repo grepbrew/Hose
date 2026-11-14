@@ -85,7 +85,7 @@ async function choose(m: Model, gated: unknown) {
   if (locked(gated)) return void (error.value = GATED);
   if (gated && !(await hfCanDownload(m.id, props.hfToken, m.draws)))
     return void (error.value = `Accept the licence on huggingface.co/${m.id} with your Hugging Face account, then pick it again.`);
-  model.value = { id: m.id, params: m.params, vision: m.vision, draws: m.draws };
+  model.value = { id: m.id, params: m.params, vision: m.vision, draws: m.draws, edits: m.edits };
   pictures.value = !!m.draws;
   gpu.value = null; // the picker picks this model's recommended GPU
   name.value = null;
