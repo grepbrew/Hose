@@ -101,6 +101,15 @@ export const seesImages = (m: Model) => m.vision ?? !!PRESETS.find((p) => p.id =
 /** Denoising steps for a picture model: the preset's, else undefined (vLLM-Omni's default). */
 export const stepsOf = (id: string) => presetOf(id)?.steps;
 
+/**
+ * A typed picture size as vLLM-Omni's "WxH": each side to the nearest multiple of 16 (the server floors to 16 anyway),
+ * 256–2048, a blank or bad box = 1024. ponytail: 2048 cap is a guess at what one GPU draws in reasonable time; raise it if asked.
+ */
+export function sizeOf(w: unknown, h: unknown) {
+  const side = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v > 0 ? Math.min(2048, Math.max(256, Math.round(v / 16) * 16)) : 1024);
+  return `${side(w)}x${side(h)}`;
+}
+
 /** vLLM-Omni /v1/images/generations fields Hose sets (ImageGenerationRequest, v0.30.0). */
 export type DrawParams = { num_inference_steps?: number; seed?: number; negative_prompt?: string; guidance_scale?: number; true_cfg_scale?: number };
 
@@ -526,6 +535,7 @@ export type Config = Model & {
   seed?: number;
   negative?: string;
   guidance?: number;
+  size?: string; // "WxH" last picked (a Shape or Custom); unset = Square
 };
 
 /** A new config for a model on a GPU card: Secure, off after 10 quiet minutes, the recommended storage. over = the user's choices. */
